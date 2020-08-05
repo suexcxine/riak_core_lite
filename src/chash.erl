@@ -38,9 +38,9 @@
 
 -define(CHASH_IMPL, chash_legacy).
 
--export([contains_name/2, fresh/2, lookup/2, key_of/1,
-	 members/1, merge_rings/2, next_index/2, nodes/1,
-	 predecessors/2, predecessors/3, ring_increment/1,
+-export([contains_name/2, fresh/2, index_to_int/1, int_to_index/1, lookup/2,
+	key_of/1, members/1, merge_rings/2, next_index/2, nodes/1,
+	 predecessors/2, predecessors/3, preference_list/2, ring_increment/1,
 	 size/1, successors/2, successors/3, update/3]).
 
 -export_type([chash/0, index/0, index_as_int/0]).
@@ -68,6 +68,8 @@
 
 -type num_partitions() :: ?CHASH_IMPL:num_partitions().
 
+-type preference_list() :: ?CHASH_IMPL:preference_list().
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -89,12 +91,25 @@ contains_name(Name, CHash) ->
 fresh(NumPartitions, SeedNode) ->
     (?CHASH_IMPL):fresh(NumPartitions, SeedNode).
 
-%% @doc Find the Node that owns the partition identified by IndexAsInt.
--spec lookup(IndexAsInt :: index_as_int(),
+%% @doc Converts a given index to its integer representation.
+-spec index_to_int(Index :: index()) -> Int :: integer().
+
+index_to_int(Index) ->
+	(?CHASH_IMPL):index_to_int(Index).
+
+%% @doc Converts a given integer representation of an index to its original
+%% form.
+-spec int_to_index(Int :: integer()) -> Index :: index().
+
+int_to_index(Int) ->
+	(?CHASH_IMPL):int_to_index(Int).
+
+%% @doc Find the Node that owns the partition identified by Index.
+-spec lookup(Index :: index_as_int() | index(),
 	     CHash :: chash()) -> chash_node().
 
-lookup(IndexAsInt, CHash) ->
-    (?CHASH_IMPL):lookup(IndexAsInt, CHash).
+lookup(Index, CHash) ->
+    (?CHASH_IMPL):lookup(Index, CHash).
 
 %% @doc Given any term used to name an object, produce that object's key
 %%      into the ring.  Two names with the same SHA-1 hash value are
@@ -146,6 +161,14 @@ predecessors(Index, CHash) ->
 
 predecessors(Index, CHash, N) ->
     (?CHASH_IMPL):predecessors(Index, CHash, N).
+
+%% @doc Given an object key, return at least N NodeEntries in the order of
+%% preferred replica placement.
+-spec preference_list(Index :: index(), CHash :: chash())
+	-> preference_list().
+
+preference_list(Index, CHash) ->
+	(?CHASH_IMPL):preference_list(Index, CHash).
 
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.

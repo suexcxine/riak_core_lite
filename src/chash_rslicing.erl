@@ -44,8 +44,8 @@
          pretty_with_integers/3]).
 
 %% chash API
--export([contains_name/2, fresh/2, lookup/2, key_of/1,
-	 members/1, merge_rings/2, next_index/2, nodes/1,
+-export([contains_name/2, fresh/2, index_to_int/1, int_to_index/1, lookup/2,
+    key_of/1, members/1, merge_rings/2, next_index/2, nodes/1,
 	 predecessors/2, predecessors/3, ring_increment/1,
 	 size/1, successors/2, successors/3, update/3]).
 
@@ -392,16 +392,33 @@ fresh(_NumPartitions, SeedNode) ->
     WeightMap = [{SeedNode, 100}],
     {make_float_map(WeightMap), {stale, {}}, WeightMap}.
 
+%% @doc Converts a given index to its integer representation.
+-spec index_to_int(Index :: index()) -> Int :: integer().
+
+index_to_int(Index) ->
+    % WARN possible loss of precision.
+	Index * ?SHA_MAX.
+
+%% @doc Converts a given integer representation of an index to its original
+%% form.
+-spec int_to_index(Int :: integer()) -> Index :: index().
+
+int_to_index(Int) ->
+	Int / ?SHA_MAX.
+
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
--spec lookup(IndexAsInt :: index_as_int(),
+-spec lookup(Index :: index() | index_as_int(),
 	     CHash :: chash()) -> chash_node().
 
-lookup(IndexAsInt, {FloatMap, {stale, _FloatTree}, _}) ->
-    %% optimization: also return new chash() with updated tree
-    lookup(IndexAsInt, {FloatMap, {up_to_date, make_tree(FloatMap)}});
+lookup(Index, CHash) when is_integer(Index) ->
+    lookup(int_to_index(Index), CHash);
 
-lookup(IndexAsInt, {_, {up_to_date, FloatTree}, _}) ->
-    query_tree(IndexAsInt / ?SHA_MAX, FloatTree).
+lookup(Index, {FloatMap, {stale, _FloatTree}, _}) ->
+    %% optimization: also return new chash() with updated tree
+    lookup(Index, {FloatMap, {up_to_date, make_tree(FloatMap)}});
+
+lookup(Index, {_, {up_to_date, FloatTree}, _}) ->
+    query_tree(Index, FloatTree).
 
 %% @doc Given any term used to name an object, produce that object's key
 %%      into the ring.  Two names with the same SHA-1 hash value are

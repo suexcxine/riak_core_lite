@@ -370,12 +370,10 @@ owner_node(State) -> State#chstate.nodename.
 %% @doc For a given object key, produce the ordered list of
 %%      {partition,node} pairs that could be responsible for that object.
 -spec preflist(Key :: binary(),
-	       State :: chstate()) -> [{Index :: chash:index_as_int(),
-					Node :: term()}].
+	       State :: chstate()) -> chash:preference_list().
 
 preflist(Key, State) ->
-	%% NOTE Need a more abstract version in chash to provide a preflist.
-    chash:successors(Key, State#chstate.chring).
+    chash:preference_list(Key, State#chstate.chring).
 
 %% @doc Return a randomly-chosen node from amongst the owners.
 -spec random_node(State :: chstate()) -> Node :: term().

@@ -36,9 +36,9 @@
 
 -module(chash_legacy).
 
--export([contains_name/2, fresh/2, lookup/2, key_of/1,
+-export([contains_name/2, fresh/2, index_to_int/1, int_to_index/1, lookup/2, key_of/1,
 	 members/1, merge_rings/2, next_index/2, nodes/1,
-	 predecessors/2, predecessors/3, ring_increment/1,
+	 predecessors/2, predecessors/3, preference_list/2, ring_increment/1,
 	 size/1, successors/2, successors/3, update/3]).
 
 -export_type([chash/0, index/0, index_as_int/0]).
@@ -69,6 +69,8 @@
 
 -type num_partitions() :: pos_integer().
 
+-type preference_list() :: [node_entry()].
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -94,10 +96,26 @@ fresh(NumPartitions, SeedNode) ->
      [{IndexAsInt, SeedNode}
       || IndexAsInt <- lists:seq(0, (?RINGTOP) - 1, Inc)]}.
 
+%% @doc Converts a given index to its integer representation.
+-spec index_to_int(Index :: index()) -> Int :: integer().
+
+index_to_int(Index) ->
+	<<IndexAsInt:160/integer>> = Index,
+    IndexAsInt.
+
+%% @doc Converts a given integer representation of an index to its original
+%% form.
+-spec int_to_index(Int :: integer()) -> Index :: index().
+
+int_to_index(Int) ->
+	binary_to_integer(Int).
+
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
--spec lookup(IndexAsInt :: index_as_int(),
+-spec lookup(Index :: index_as_int() | index(),
 	     CHash :: chash()) -> chash_node().
 
+lookup(Index, CHash) when not is_integer(Index) ->
+    lookup(index_to_int(Index), CHash);
 lookup(IndexAsInt, CHash) ->
     {_NumPartitions, Nodes} = CHash,
     {IndexAsInt, X} = proplists:lookup(IndexAsInt, Nodes),
@@ -177,6 +195,14 @@ predecessors(Index, CHash, N) ->
     {Res, _} = lists:split(Num,
 			   lists:reverse(ordered_from(Index, CHash))),
     Res.
+
+%% @doc Given an object key, return all NodeEntries in the order of
+%% preferred replica placement.
+-spec preference_list(Index :: index(), CHash :: chash())
+	-> preference_list().
+
+preference_list(Index, CHash) ->
+    successors(Index, CHash).
 
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
