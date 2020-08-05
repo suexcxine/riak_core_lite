@@ -31,23 +31,22 @@
 %%     definitions.
 
 -define(SMALLEST_SIGNIFICANT_FLOAT_SIZE, 0.1e-12).
--define(SHA_MAX, (1 bsl (20*8))).
+
+-define(SHA_MAX, 1 bsl 20 * 8).
 
 %% -compile(export_all).
 -export([make_float_map/1, make_float_map/2,
-         sum_map_weights/1,
-         make_tree/1,
-         query_tree/2,
+         sum_map_weights/1, make_tree/1, query_tree/2,
          hash_binary_via_float_map/2,
-         hash_binary_via_float_tree/2,
-         pretty_with_integers/2,
+         hash_binary_via_float_tree/2, pretty_with_integers/2,
          pretty_with_integers/3]).
 
 %% chash API
--export([contains_name/2, fresh/2, index_to_int/1, int_to_index/1, lookup/2,
-    key_of/1, members/1, merge_rings/2, next_index/2, nodes/1,
-	 predecessors/2, predecessors/3, ring_increment/1,
-	 size/1, successors/2, successors/3, update/3]).
+-export([contains_name/2, fresh/2, index_to_int/1,
+         int_to_index/1, lookup/2, key_of/1, members/1,
+         merge_rings/2, next_index/2, nodes/1, offsets/1,
+         predecessors/2, predecessors/3, ring_increment/1,
+         size/1, successors/2, successors/3, update/3]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -67,10 +66,12 @@
 
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
 %% never valid in our case.  But teaching Dialyzer that is difficult.
--opaque float_tree() :: gb_trees:tree(float(), owner_name()).
+-opaque float_tree() :: gb_trees:tree(float(),
+                                      owner_name()).
 
 %% Used when "prettying" a float map.
--type owner_int_range() :: {owner_name(), non_neg_integer(), non_neg_integer()}.
+-type owner_int_range() :: {owner_name(),
+                            non_neg_integer(), non_neg_integer()}.
 
 -type owner_weight() :: {owner_name(), weight()}.
 
@@ -81,7 +82,8 @@
 
 -type tree_status() :: stale | up_to_date.
 
--type chash() :: {float_map(), {tree_status(), float_tree()}, owner_weight_list()}.
+-type chash() :: {float_map(),
+                  {tree_status(), float_tree()}, owner_weight_list()}.
 
 -type index() :: float().
 
@@ -101,7 +103,9 @@
 
 %% @doc Create a float map, based on a basic owner weight list.
 
--spec make_float_map(owner_weight_list()) -> float_map().
+-spec
+     make_float_map(owner_weight_list()) -> float_map().
+
 make_float_map(NewOwnerWeights) ->
     make_float_map([], NewOwnerWeights).
 
@@ -111,124 +115,129 @@ make_float_map(NewOwnerWeights) ->
 %% The weights in the new weight list may be different than (or the
 %% same as) whatever weights were used to make the older float map.
 
--spec make_float_map(float_map(), owner_weight_list()) -> float_map().
+-spec make_float_map(float_map(),
+                     owner_weight_list()) -> float_map().
+
 make_float_map([], NewOwnerWeights) ->
     Sum = add_all_weights(NewOwnerWeights),
-    DiffMap = [{Ch, Wt/Sum} || {Ch, Wt} <- NewOwnerWeights],
-    make_float_map2([{unused, 1.0}], DiffMap, NewOwnerWeights);
+    DiffMap = [{Ch, Wt / Sum}
+               || {Ch, Wt} <- NewOwnerWeights],
+    make_float_map2([{unused, 1.0}], DiffMap,
+                    NewOwnerWeights);
 make_float_map(OldFloatMap, NewOwnerWeights) ->
     NewSum = add_all_weights(NewOwnerWeights),
     %% Normalize to unit interval
     %% NewOwnerWeights2 = [{Ch, Wt / NewSum} || {Ch, Wt} <- NewOwnerWeights],
-
     %% Reconstruct old owner weights (will be normalized to unit interval)
-    SumOldFloatsDict =
-        lists:foldl(fun({Ch, Wt}, OrdDict) ->
-                            orddict:update_counter(Ch, Wt, OrdDict)
-                    end, orddict:new(), OldFloatMap),
+    SumOldFloatsDict = lists:foldl(fun ({Ch, Wt},
+                                        OrdDict) ->
+                                           orddict:update_counter(Ch, Wt,
+                                                                  OrdDict)
+                                   end,
+                                   orddict:new(), OldFloatMap),
     OldOwnerWeights = orddict:to_list(SumOldFloatsDict),
     OldSum = add_all_weights(OldOwnerWeights),
-
     OldChs = [Ch || {Ch, _} <- OldOwnerWeights],
     NewChs = [Ch || {Ch, _} <- NewOwnerWeights],
     OldChsOnly = OldChs -- NewChs,
-
     %% Mark any space in by a deleted owner as unused.
-    OldFloatMap2 = lists:map(
-                     fun({Ch, Wt} = ChWt) ->
-                                 case lists:member(Ch, OldChsOnly) of
-                                     true  ->
-                                         {unused, Wt};
-                                     false ->
-                                         ChWt
-                                 end
-                     end, OldFloatMap),
-
+    OldFloatMap2 = lists:map(fun ({Ch, Wt} = ChWt) ->
+                                     case lists:member(Ch, OldChsOnly) of
+                                       true -> {unused, Wt};
+                                       false -> ChWt
+                                     end
+                             end,
+                             OldFloatMap),
     %% Create a diff map of changing owners and added owners
-    DiffMap = lists:map(fun({Ch, NewWt}) ->
+    DiffMap = lists:map(fun ({Ch, NewWt}) ->
                                 case orddict:find(Ch, SumOldFloatsDict) of
-                                    {ok, OldWt} ->
-                                        {Ch, (NewWt / NewSum) -
-                                             (OldWt / OldSum)};
-                                    error ->
-                                        {Ch, NewWt / NewSum}
+                                  {ok, OldWt} ->
+                                      {Ch, NewWt / NewSum - OldWt / OldSum};
+                                  error -> {Ch, NewWt / NewSum}
                                 end
-                        end, NewOwnerWeights),
+                        end,
+                        NewOwnerWeights),
     make_float_map2(OldFloatMap2, DiffMap, NewOwnerWeights).
 
-make_float_map2(OldFloatMap, DiffMap, _NewOwnerWeights) ->
+make_float_map2(OldFloatMap, DiffMap,
+                _NewOwnerWeights) ->
     FloatMap = apply_diffmap(DiffMap, OldFloatMap),
-    XX = combine_neighbors(collapse_unused_in_float_map(FloatMap)),
+    XX =
+        combine_neighbors(collapse_unused_in_float_map(FloatMap)),
     XX.
 
 apply_diffmap(DiffMap, FloatMap) ->
-    SubtractDiff = [{Ch, abs(Diff)} || {Ch, Diff} <- DiffMap, Diff < 0],
+    SubtractDiff = [{Ch, abs(Diff)}
+                    || {Ch, Diff} <- DiffMap, Diff < 0],
     AddDiff = [D || {_Ch, Diff} = D <- DiffMap, Diff > 0],
-    TmpFloatMap = iter_diffmap_subtract(SubtractDiff, FloatMap),
+    TmpFloatMap = iter_diffmap_subtract(SubtractDiff,
+                                        FloatMap),
     iter_diffmap_add(AddDiff, TmpFloatMap).
 
 add_all_weights(OwnerWeights) ->
-    lists:foldl(fun({_Ch, Weight}, Sum) -> Sum + Weight end, 0.0, OwnerWeights).
+    lists:foldl(fun ({_Ch, Weight}, Sum) -> Sum + Weight
+                end,
+                0.0, OwnerWeights).
 
-iter_diffmap_subtract([{Ch, Diff}|T], FloatMap) ->
-    iter_diffmap_subtract(T, apply_diffmap_subtract(Ch, Diff, FloatMap));
-iter_diffmap_subtract([], FloatMap) ->
-    FloatMap.
+iter_diffmap_subtract([{Ch, Diff} | T], FloatMap) ->
+    iter_diffmap_subtract(T,
+                          apply_diffmap_subtract(Ch, Diff, FloatMap));
+iter_diffmap_subtract([], FloatMap) -> FloatMap.
 
-iter_diffmap_add([{Ch, Diff}|T], FloatMap) ->
-    iter_diffmap_add(T, apply_diffmap_add(Ch, Diff, FloatMap));
-iter_diffmap_add([], FloatMap) ->
-    FloatMap.
+iter_diffmap_add([{Ch, Diff} | T], FloatMap) ->
+    iter_diffmap_add(T,
+                     apply_diffmap_add(Ch, Diff, FloatMap));
+iter_diffmap_add([], FloatMap) -> FloatMap.
 
-apply_diffmap_subtract(Ch, Diff, [{Ch, Wt}|T]) ->
-    if Wt == Diff ->
-            [{unused, Wt}|T];
-       Wt > Diff ->
-            [{Ch, Wt - Diff}, {unused, Diff}|T];
+apply_diffmap_subtract(Ch, Diff, [{Ch, Wt} | T]) ->
+    if Wt == Diff -> [{unused, Wt} | T];
+       Wt > Diff -> [{Ch, Wt - Diff}, {unused, Diff} | T];
        Wt < Diff ->
-            [{unused, Wt}|apply_diffmap_subtract(Ch, Diff - Wt, T)]
+           [{unused, Wt} | apply_diffmap_subtract(Ch, Diff - Wt,
+                                                  T)]
     end;
-apply_diffmap_subtract(Ch, Diff, [H|T]) ->
-    [H|apply_diffmap_subtract(Ch, Diff, T)];
-apply_diffmap_subtract(_Ch, _Diff, []) ->
-    [].
+apply_diffmap_subtract(Ch, Diff, [H | T]) ->
+    [H | apply_diffmap_subtract(Ch, Diff, T)];
+apply_diffmap_subtract(_Ch, _Diff, []) -> [].
 
-apply_diffmap_add(Ch, Diff, [{unused, Wt}|T]) ->
-    if Wt == Diff ->
-            [{Ch, Wt}|T];
-       Wt > Diff ->
-            [{Ch, Diff}, {unused, Wt - Diff}|T];
+apply_diffmap_add(Ch, Diff, [{unused, Wt} | T]) ->
+    if Wt == Diff -> [{Ch, Wt} | T];
+       Wt > Diff -> [{Ch, Diff}, {unused, Wt - Diff} | T];
        Wt < Diff ->
-            [{Ch, Wt}|apply_diffmap_add(Ch, Diff - Wt, T)]
+           [{Ch, Wt} | apply_diffmap_add(Ch, Diff - Wt, T)]
     end;
-apply_diffmap_add(Ch, Diff, [H|T]) ->
-    [H|apply_diffmap_add(Ch, Diff, T)];
-apply_diffmap_add(_Ch, _Diff, []) ->
-    [].
+apply_diffmap_add(Ch, Diff, [H | T]) ->
+    [H | apply_diffmap_add(Ch, Diff, T)];
+apply_diffmap_add(_Ch, _Diff, []) -> [].
 
-combine_neighbors([{Ch, Wt1}, {Ch, Wt2}|T]) ->
-    combine_neighbors([{Ch, Wt1 + Wt2}|T]);
-combine_neighbors([H|T]) ->
-    [H|combine_neighbors(T)];
-combine_neighbors([]) ->
-    [].
+combine_neighbors([{Ch, Wt1}, {Ch, Wt2} | T]) ->
+    combine_neighbors([{Ch, Wt1 + Wt2} | T]);
+combine_neighbors([H | T]) ->
+    [H | combine_neighbors(T)];
+combine_neighbors([]) -> [].
 
-collapse_unused_in_float_map([{Ch, Wt1}, {unused, Wt2}|T]) ->
-    collapse_unused_in_float_map([{Ch, Wt1 + Wt2}|T]);
+collapse_unused_in_float_map([{Ch, Wt1}, {unused, Wt2}
+                              | T]) ->
+    collapse_unused_in_float_map([{Ch, Wt1 + Wt2} | T]);
 collapse_unused_in_float_map([{unused, _}] = L) ->
     L;                                          % Degenerate case only
-collapse_unused_in_float_map([H|T]) ->
-    [H|collapse_unused_in_float_map(T)];
-collapse_unused_in_float_map([]) ->
-    [].
+collapse_unused_in_float_map([H | T]) ->
+    [H | collapse_unused_in_float_map(T)];
+collapse_unused_in_float_map([]) -> [].
 
-chash_float_map_to_nextfloat_list(FloatMap) when length(FloatMap) > 0 ->
+chash_float_map_to_nextfloat_list(FloatMap)
+    when length(FloatMap) > 0 ->
     %% QuickCheck found a bug ... need to weed out stuff smaller than
     %% ?SMALLEST_SIGNIFICANT_FLOAT_SIZE here.
-    FM1 = [P || {_X, Y} = P <- FloatMap, Y > ?SMALLEST_SIGNIFICANT_FLOAT_SIZE],
-    {_Sum, NFs0} = lists:foldl(fun({Name, Amount}, {Sum, List}) ->
-                                       {Sum+Amount, [{Sum+Amount, Name}|List]}
-                               end, {0, []}, FM1),
+    FM1 = [P
+           || {_X, Y} = P <- FloatMap,
+              Y > (?SMALLEST_SIGNIFICANT_FLOAT_SIZE)],
+    {_Sum, NFs0} = lists:foldl(fun ({Name, Amount},
+                                    {Sum, List}) ->
+                                       {Sum + Amount,
+                                        [{Sum + Amount, Name} | List]}
+                               end,
+                               {0, []}, FM1),
     lists:reverse(NFs0).
 
 chash_nextfloat_list_to_gb_tree([]) ->
@@ -240,21 +249,22 @@ chash_nextfloat_list_to_gb_tree(NextFloatList) ->
     NFs = NextFloatList ++ [{42.0, Name}],
     gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
 
--spec chash_gb_next(float(), float_tree()) -> {float(), owner_name()}.
+-spec chash_gb_next(float(), float_tree()) -> {float(),
+                                               owner_name()}.
+
 chash_gb_next(X, {_, GbTree}) ->
     chash_gb_next1(X, GbTree).
 
-chash_gb_next1(X, {Key, Val, Left, _Right}) when X < Key ->
+chash_gb_next1(X, {Key, Val, Left, _Right})
+    when X < Key ->
     case chash_gb_next1(X, Left) of
-        nil ->
-            {Key, Val};
-        Res ->
-            Res
+      nil -> {Key, Val};
+      Res -> Res
     end;
-chash_gb_next1(X, {Key, _Val, _Left, Right}) when X >= Key ->
+chash_gb_next1(X, {Key, _Val, _Left, Right})
+    when X >= Key ->
     chash_gb_next1(X, Right);
-chash_gb_next1(_X, nil) ->
-    nil.
+chash_gb_next1(_X, nil) -> nil.
 
 %% @doc Not used directly, but can give a developer an idea of how well
 %% chash_float_map_to_nextfloat_list will do for a given value of Max.
@@ -287,16 +297,19 @@ chash_scale_to_int_interval(NewFloatMap, Max) ->
 
 chash_scale_to_int_interval([{Ch, _Wt}], Cur, Max) ->
     [{Ch, Cur, Max}];
-chash_scale_to_int_interval([{Ch, Wt}|T], Cur, Max) ->
+chash_scale_to_int_interval([{Ch, Wt} | T], Cur, Max) ->
     Int = trunc(Wt * Max),
-    [{Ch, Cur + 1, Cur + Int}|chash_scale_to_int_interval(T, Cur + Int, Max)].
+    [{Ch, Cur + 1, Cur + Int}
+     | chash_scale_to_int_interval(T, Cur + Int, Max)].
 
 %%%%%%%%%%%%%
 
 %% @doc Make a pretty/human-friendly version of a float map that describes
 %% integer ranges between 1 and `Scale'.
 
--spec pretty_with_integers(float_map(), integer()) -> [owner_int_range()].
+-spec pretty_with_integers(float_map(),
+                           integer()) -> [owner_int_range()].
+
 pretty_with_integers(Map, Scale) ->
     chash_scale_to_int_interval(Map, Scale).
 
@@ -304,27 +317,31 @@ pretty_with_integers(Map, Scale) ->
 %% upon a float map created from `OldWeights' and `NewWeights') that
 %% describes integer ranges between 1 and `Scale'.
 
--spec pretty_with_integers(owner_weight_list(), owner_weight_list(),integer())->
-      [owner_int_range()].
+-spec pretty_with_integers(owner_weight_list(),
+                           owner_weight_list(),
+                           integer()) -> [owner_int_range()].
+
 pretty_with_integers(OldWeights, NewWeights, Scale) ->
-    chash_scale_to_int_interval(
-      make_float_map(make_float_map(OldWeights),
-                     NewWeights),
-      Scale).
+    chash_scale_to_int_interval(make_float_map(make_float_map(OldWeights),
+                                               NewWeights),
+                                Scale).
 
 %% @doc Create a float tree, which is the rapid lookup data structure
 %% for consistent hash queries.
 
 -spec make_tree(float_map()) -> float_tree().
+
 make_tree(Map) ->
-    chash_nextfloat_list_to_gb_tree(
-      chash_float_map_to_nextfloat_list(Map)).
+    chash_nextfloat_list_to_gb_tree(chash_float_map_to_nextfloat_list(Map)).
 
 %% @doc Low-level function for querying a float tree: the (floating
 %% point) point within the unit interval.
 
--spec query_tree(float(), float_tree()) -> {float(), owner_name()}.
-query_tree(Val, Tree) when is_float(Val), 0.0 =< Val, Val =< 1.0 ->
+-spec query_tree(float(), float_tree()) -> {float(),
+                                            owner_name()}.
+
+query_tree(Val, Tree)
+    when is_float(Val), 0.0 =< Val, Val =< 1.0 ->
     chash_gb_next(Val, Tree).
 
 %% @doc Create a human-friendly summary of a float map.
@@ -333,40 +350,45 @@ query_tree(Val, Tree) when is_float(Val), 0.0 =< Val, Val =< 1.0 ->
 %% interval range(s) owned by each owner, and a total sum of all
 %% per-owner ranges (which should be 1.0 but is not enforced).
 
--spec sum_map_weights(float_map()) ->
-    {{per_owner, float_map()}, {weight_sum, float()}}.
+-spec sum_map_weights(float_map()) -> {{per_owner,
+                                        float_map()},
+                                       {weight_sum, float()}}.
+
 sum_map_weights(Map) ->
-    L = sum_map_weights(lists:sort(Map), undefined, 0.0) -- [{undefined,0.0}],
+    L = sum_map_weights(lists:sort(Map), undefined, 0.0) --
+          [{undefined, 0.0}],
     WeightSum = lists:sum([Weight || {_, Weight} <- L]),
     {{per_owner, L}, {weight_sum, WeightSum}}.
 
-sum_map_weights([{SZ, Weight}|T], SZ, SZ_total) ->
+sum_map_weights([{SZ, Weight} | T], SZ, SZ_total) ->
     sum_map_weights(T, SZ, SZ_total + Weight);
-sum_map_weights([{SZ, Weight}|T], LastSZ, LastSZ_total) ->
-    [{LastSZ, LastSZ_total}|sum_map_weights(T, SZ, Weight)];
+sum_map_weights([{SZ, Weight} | T], LastSZ,
+                LastSZ_total) ->
+    [{LastSZ, LastSZ_total} | sum_map_weights(T, SZ,
+                                              Weight)];
 sum_map_weights([], LastSZ, LastSZ_total) ->
     [{LastSZ, LastSZ_total}].
 
 %% @doc Query a float map with a binary (inefficient).
 
--spec hash_binary_via_float_map(binary(), float_map()) ->
-      {float(), owner_name()}.
+-spec hash_binary_via_float_map(binary(),
+                                float_map()) -> {float(), owner_name()}.
+
 hash_binary_via_float_map(Key, Map) ->
     Tree = make_tree(Map),
-    <<Int:(20*8)/unsigned>> = crypto:hash(sha, Key),
-    Float = Int / ?SHA_MAX,
+    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha, Key),
+    Float = Int / (?SHA_MAX),
     query_tree(Float, Tree).
 
 %% @doc Query a float tree with a binary.
 
--spec hash_binary_via_float_tree(binary(), float_tree()) ->
-      {float(), owner_name()}.
+-spec hash_binary_via_float_tree(binary(),
+                                 float_tree()) -> {float(), owner_name()}.
+
 hash_binary_via_float_tree(Key, Tree) ->
-    <<Int:(20*8)/unsigned>> = crypto:hash(sha, Key),
-    Float = Int / ?SHA_MAX,
+    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha, Key),
+    Float = Int / (?SHA_MAX),
     query_tree(Float, Tree).
-
-
 
 %% ===================================================================
 %% Public API chash
@@ -374,7 +396,7 @@ hash_binary_via_float_tree(Key, Tree) ->
 
 %% @doc Return true if named Node owns any partitions in the ring, else false.
 -spec contains_name(Name :: chash_node(),
-		    CHash :: chash()) -> boolean().
+                    CHash :: chash()) -> boolean().
 
 contains_name(Name, {FloatMap, _, _}) ->
     lists:keymember(Name, 2, FloatMap).
@@ -384,7 +406,7 @@ contains_name(Name, {FloatMap, _, _}) ->
 %%      is not much larger than the intended eventual number of
 %%       participating nodes, then performance will suffer.
 -spec fresh(NumPartitions :: num_partitions(),
-	    SeedNode :: chash_node()) -> chash().
+            SeedNode :: chash_node()) -> chash().
 
 fresh(_NumPartitions, SeedNode) ->
     %% Not sure what to do with NumPartitions
@@ -393,30 +415,30 @@ fresh(_NumPartitions, SeedNode) ->
     {make_float_map(WeightMap), {stale, {}}, WeightMap}.
 
 %% @doc Converts a given index to its integer representation.
--spec index_to_int(Index :: index()) -> Int :: integer().
+-spec index_to_int(Index :: index()) -> Int ::
+                                            integer().
 
 index_to_int(Index) ->
     % WARN possible loss of precision.
-	Index * ?SHA_MAX.
+    Index * (?SHA_MAX).
 
 %% @doc Converts a given integer representation of an index to its original
 %% form.
--spec int_to_index(Int :: integer()) -> Index :: index().
+-spec int_to_index(Int :: integer()) -> Index ::
+                                            index().
 
-int_to_index(Int) ->
-	Int / ?SHA_MAX.
+int_to_index(Int) -> Int / (?SHA_MAX).
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
 -spec lookup(Index :: index() | index_as_int(),
-	     CHash :: chash()) -> chash_node().
+             CHash :: chash()) -> chash_node().
 
 lookup(Index, CHash) when is_integer(Index) ->
     lookup(int_to_index(Index), CHash);
-
 lookup(Index, {FloatMap, {stale, _FloatTree}, _}) ->
     %% optimization: also return new chash() with updated tree
-    lookup(Index, {FloatMap, {up_to_date, make_tree(FloatMap)}});
-
+    lookup(Index,
+           {FloatMap, {up_to_date, make_tree(FloatMap)}});
 lookup(Index, {_, {up_to_date, FloatTree}, _}) ->
     query_tree(Index, FloatTree).
 
@@ -425,21 +447,23 @@ lookup(Index, {_, {up_to_date, FloatTree}, _}) ->
 %%      considered the same name.
 -spec key_of(ObjectName :: term()) -> index().
 
-key_of(ObjectName) -> 
-    <<Int:(20*8)/unsigned>> = crypto:hash(sha, term_to_binary(ObjectName)),
-    Int / ?SHA_MAX.
+key_of(ObjectName) ->
+    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha,
+                                            term_to_binary(ObjectName)),
+    Int / (?SHA_MAX).
 
 %% @doc Return all Nodes that own any partitions in the ring.
 -spec members(CHash :: chash()) -> [chash_node()].
 
 members({FloatMap, _, _}) ->
-    lists:from_set(sets:from_list([Name || {Name, _} <- FloatMap])).
+    lists:from_set(sets:from_list([Name
+                                   || {Name, _} <- FloatMap])).
 
 %% @doc Return a randomized merge of two rings.
 %%      If multiple nodes are actively claiming nodes in the same
 %%      time period, churn will occur.  Be prepared to live with it.
 -spec merge_rings(CHashA :: chash(),
-		  CHashB :: chash()) -> chash().
+                  CHashB :: chash()) -> chash().
 
 merge_rings(CHashA, CHashB) ->
     {FloatMapA, {_, FloatTreeA}, WeightListA} = CHashA,
@@ -451,24 +475,25 @@ merge_rings(CHashA, CHashB) ->
     %% use case?
     NodesA = members(CHashA),
     NodesB = members(CHashB),
-    DisjunctWeightsA = [{Owner, Weight} ||
-        {Owner, Weight} <- WeightListA, lists:member(Owner, NodesB)],
-    DisjunctWeightsB = [{Owner, Weight} ||
-        {Owner, Weight} <- WeightListB, lists:member(Owner, NodesA)],
-    ConjunctWeights = [{Owner, random_weight(WeightA, WeightB)} ||
-        {{Owner, WeightA}, {Owner, WeightB}} <- lists:zip(WeightListA, WeightListB)],
-    NewOwnerWeights =
-        lists:append([DisjunctWeightsA, DisjunctWeightsB, ConjunctWeights]),
-    {
-        make_float_map(FloatMapA, NewOwnerWeights),
-        {stale, FloatTreeA},
-        NewOwnerWeights
-    }.
+    DisjunctWeightsA = [{Owner, Weight}
+                        || {Owner, Weight} <- WeightListA,
+                           lists:member(Owner, NodesB)],
+    DisjunctWeightsB = [{Owner, Weight}
+                        || {Owner, Weight} <- WeightListB,
+                           lists:member(Owner, NodesA)],
+    ConjunctWeights = [{Owner,
+                        random_weight(WeightA, WeightB)}
+                       || {{Owner, WeightA}, {Owner, WeightB}}
+                              <- lists:zip(WeightListA, WeightListB)],
+    NewOwnerWeights = lists:append([DisjunctWeightsA,
+                                    DisjunctWeightsB, ConjunctWeights]),
+    {make_float_map(FloatMapA, NewOwnerWeights),
+     {stale, FloatTreeA}, NewOwnerWeights}.
 
 %% @doc Given the integer representation of a chash key,
 %%      return the next ring index integer value.
 -spec next_index(IntegerKey :: integer(),
-		 CHash :: chash()) -> index_as_int().
+                 CHash :: chash()) -> index_as_int().
 
 next_index(_IntegerKey, _Chash) ->
     %% TODO
@@ -483,10 +508,20 @@ next_index(_IntegerKey, _Chash) ->
 
 nodes(CHash) -> {FloatMap, _, _} = CHash, FloatMap.
 
+%% @doc Return a list of section sizes as the index type.
+-spec offsets(CHash :: chash()) -> [index()].
+
+offsets({FloatMap, _, _}) ->
+    {Offsets, _} = lists:foldr(fun ({I, _N}, {O, C}) ->
+                                       {[I - C | O], I}
+                               end,
+                               {[], 0.0}, FloatMap),
+    lists:reverse(Offsets).
+
 %% @doc Given an object key, return all NodeEntries in reverse order
 %%      starting at Index.
 -spec predecessors(Index :: index() | index_as_int(),
-		   CHash :: chash()) -> [node_entry()].
+                   CHash :: chash()) -> [node_entry()].
 
 predecessors(_Index, _CHash) ->
     %% TODO
@@ -501,7 +536,7 @@ predecessors(_Index, _CHash) ->
 %% @doc Given an object key, return the next N NodeEntries in reverse order
 %%      starting at Index.
 -spec predecessors(Index :: index() | index_as_int(),
-		   CHash :: chash(), N :: integer()) -> [node_entry()].
+                   CHash :: chash(), N :: integer()) -> [node_entry()].
 
 predecessors(_Index, _CHash, _N) ->
     %% TODO
@@ -516,7 +551,7 @@ predecessors(_Index, _CHash, _N) ->
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
 -spec ring_increment(NumPartitions ::
-			 pos_integer()) -> pos_integer().
+                         pos_integer()) -> pos_integer().
 
 ring_increment(_NumPartitions) ->
     %% TODO
@@ -533,12 +568,11 @@ ring_increment(_NumPartitions) ->
 %% @doc Return the number of partitions in the ring.
 -spec size(CHash :: chash()) -> integer().
 
-size({FloatMap, _, _}) ->
-    lists:size(FloatMap).
+size({FloatMap, _, _}) -> lists:size(FloatMap).
 
 %% @doc Given an object key, return all NodeEntries in order starting at Index.
 -spec successors(Index :: index(),
-		 CHash :: chash()) -> [node_entry()].
+                 CHash :: chash()) -> [node_entry()].
 
 successors(_Index, _CHash) ->
     %% TODO
@@ -551,7 +585,7 @@ successors(_Index, _CHash) ->
 %% @doc Given an object key, return the next N NodeEntries in order
 %%      starting at Index.
 -spec successors(Index :: index(), CHash :: chash(),
-		 N :: integer()) -> [node_entry()].
+                 N :: integer()) -> [node_entry()].
 
 successors(_Index, _CHash, _N) ->
     %% TODO
@@ -562,7 +596,7 @@ successors(_Index, _CHash, _N) ->
 
 %% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
 -spec update(IndexAsInt :: index_as_int(),
-	     Name :: chash_node(), CHash :: chash()) -> chash().
+             Name :: chash_node(), CHash :: chash()) -> chash().
 
 %% Used when resizing the ring, renaming a node, and transferring a node to a
 %% partition. How to abstract from that?
@@ -574,7 +608,8 @@ update(IndexAsInt, Name, CHash) ->
 %% ====================================================================
 
 %% @private
--spec random_weight(WeightA :: weight(), WeightB :: weight()) -> weight().
+-spec random_weight(WeightA :: weight(),
+                    WeightB :: weight()) -> weight().
 
 random_weight(WeightA, WeightB) ->
     lists:nth(rand:uniform(2), [WeightA, WeightB]).
@@ -590,49 +625,55 @@ update_test() ->
     % Create a fresh ring...
     CHash = chash_rslicing:fresh(5, Node),
     GetNthIndex = fun (N, {_, Nodes}) ->
-			  {Index, _} = lists:nth(N, Nodes), Index
-		  end,
+                          {Index, _} = lists:nth(N, Nodes), Index
+                  end,
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
     {5,
      [{_, NewNode}, {_, Node}, {_, Node}, {_, Node},
       {_, Node}, {_, Node}]} =
-	update(FirstIndex, NewNode, CHash),
+        update(FirstIndex, NewNode, CHash),
     {5,
      [{_, Node}, {_, Node}, {_, NewNode}, {_, Node},
       {_, Node}, {_, Node}]} =
-	update(ThirdIndex, NewNode, CHash).
+        update(ThirdIndex, NewNode, CHash).
 
 contains_test() ->
     CHash = chash_rslicing:fresh(8, the_node),
     ?assertEqual(true, (contains_name(the_node, CHash))),
     ?assertEqual(false,
-		 (contains_name(some_other_node, CHash))).
+                 (contains_name(some_other_node, CHash))).
 
 simple_size_test() ->
     ?assertEqual(8,
-		 (length(chash_rslicing:nodes(chash_rslicing:fresh(8, the_node))))).
+                 (length(chash_rslicing:nodes(chash_rslicing:fresh(8,
+                                                                   the_node))))).
 
 successors_length_test() ->
     ?assertEqual(8,
-		 (length(chash_rslicing:successors(chash_rslicing:key_of(0),
-					  chash_rslicing:fresh(8, the_node))))).
+                 (length(chash_rslicing:successors(chash_rslicing:key_of(0),
+                                                   chash_rslicing:fresh(8,
+                                                                        the_node))))).
 
 inverse_pred_test() ->
     CHash = chash_rslicing:fresh(8, the_node),
     S = [I
-	 || {I, _} <- chash_rslicing:successors(chash_rslicing:key_of(4), CHash)],
+         || {I, _}
+                <- chash_rslicing:successors(chash_rslicing:key_of(4),
+                                             CHash)],
     P = [I
-	 || {I, _}
-		<- chash_rslicing:predecessors(chash_rslicing:key_of(4), CHash)],
+         || {I, _}
+                <- chash_rslicing:predecessors(chash_rslicing:key_of(4),
+                                               CHash)],
     ?assertEqual(S, (lists:reverse(P))).
 
 merge_test() ->
     CHashA = chash_rslicing:fresh(8, node_one),
     CHashB = chash_rslicing:update(0, node_one,
-			  chash_rslicing:fresh(8, node_two)),
+                                   chash_rslicing:fresh(8, node_two)),
     CHash = chash_rslicing:merge_rings(CHashA, CHashB),
-    ?assertEqual(node_one, (chash_rslicing:lookup(0, CHash))).
+    ?assertEqual(node_one,
+                 (chash_rslicing:lookup(0, CHash))).
 
 -endif.
