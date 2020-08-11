@@ -34,6 +34,14 @@
 
 -define(SHA_MAX, 1 bsl 20 * 8).
 
+-define(REPLICAION, random).
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-endif.
+
 %% -compile(export_all).
 -export([make_float_map/1, make_float_map/2,
          sum_map_weights/1, make_tree/1, query_tree/2,
@@ -44,9 +52,10 @@
 %% chash API
 -export([contains_name/2, fresh/2, index_to_int/1,
          int_to_index/1, lookup/2, key_of/1, members/1,
-         merge_rings/2, next_index/2, nodes/1, offsets/1,
-         predecessors/2, predecessors/3, ring_increment/1,
-         size/1, successors/2, successors/3, update/3]).
+         merge_rings/2, next_index/2, nodes/1, node_size/2,
+         offsets/1, predecessors/2, predecessors/3,
+         preference_list/2, ring_increment/1, size/1,
+         successors/2, successors/3, update/3]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -92,9 +101,11 @@
 -type num_partitions() :: pos_integer().
 
 %% A single node is identified by its term, starting index and weight.
--type node_entry() :: {index(), owner_name()}.
+-type node_entry() :: {owner_name(), index()}.
 
 -type chash_node() :: owner_name().
+
+-type preference_list() :: [chash_node()].
 
 -export_type([float_map/0, float_tree/0]).
 
@@ -420,7 +431,7 @@ fresh(_NumPartitions, SeedNode) ->
 
 index_to_int(Index) ->
     % WARN possible loss of precision.
-    Index * (?SHA_MAX).
+    round(Index * (?SHA_MAX)).
 
 %% @doc Converts a given integer representation of an index to its original
 %% form.
@@ -435,10 +446,11 @@ int_to_index(Int) -> Int / (?SHA_MAX).
 
 lookup(Index, CHash) when is_integer(Index) ->
     lookup(int_to_index(Index), CHash);
-lookup(Index, {FloatMap, {stale, _FloatTree}, _}) ->
+lookup(Index,
+       {FloatMap, {stale, _FloatTree}, Weights}) ->
     %% optimization: also return new chash() with updated tree
     lookup(Index,
-           {FloatMap, {up_to_date, make_tree(FloatMap)}});
+           {FloatMap, {up_to_date, make_tree(FloatMap)}, Weights});
 lookup(Index, {_, {up_to_date, FloatTree}, _}) ->
     query_tree(Index, FloatTree).
 
@@ -456,8 +468,7 @@ key_of(ObjectName) ->
 -spec members(CHash :: chash()) -> [chash_node()].
 
 members({FloatMap, _, _}) ->
-    lists:from_set(sets:from_list([Name
-                                   || {Name, _} <- FloatMap])).
+    lists:usort([Name || {Name, _} <- FloatMap]).
 
 %% @doc Return a randomized merge of two rings.
 %%      If multiple nodes are actively claiming nodes in the same
@@ -468,7 +479,7 @@ members({FloatMap, _, _}) ->
 merge_rings(CHashA, CHashB) ->
     {FloatMapA, {_, FloatTreeA}, WeightListA} = CHashA,
     {_FloatMapB, {_, _FloatTreeB}, WeightListB} = CHashB,
-    %% For each owner in WeightListA use a random wieght of owner A or B if
+    %% For each owner in WeightListA use a random weight of owner A or B if
     %% there exists one in WeightListB. Owners that are disjunct between A and B
     %% are included in the result.
     %% Merge is exported and never used. Is it even necessary? What is/was the
@@ -508,11 +519,26 @@ next_index(_IntegerKey, _Chash) ->
 
 nodes(CHash) -> {FloatMap, _, _} = CHash, FloatMap.
 
+%% @doc Returns the distance of the index of the segment belonging to the given
+%% key to the index of the next segment
+-spec node_size(Index :: index(),
+                CHash :: chash()) -> index().
+
+node_size(Index, {FloatMap, _Tree, _Weights}) ->
+    n_size(Index, FloatMap, 0.0).
+
+n_size(_Index, [{_N, I}], _Current) -> I;
+n_size(Index, [{_N, I} | Rest], Current) ->
+    case (Index >= Current) and (Index < I + Current) of
+      true -> I;
+      false -> n_size(Index, Rest, I + Current)
+    end.
+
 %% @doc Return a list of section sizes as the index type.
 -spec offsets(CHash :: chash()) -> [index()].
 
 offsets({FloatMap, _, _}) ->
-    {Offsets, _} = lists:foldr(fun ({I, _N}, {O, C}) ->
+    {Offsets, _} = lists:foldl(fun ({_N, I}, {O, C}) ->
                                        {[I - C | O], I}
                                end,
                                {[], 0.0}, FloatMap),
@@ -547,6 +573,14 @@ predecessors(_Index, _CHash, _N) ->
     %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
     [].
+
+%% @doc Given an object key, return at least N NodeEntries in the order of
+%% preferred replica placement.
+-spec preference_list(Index :: index(),
+                      CHash :: chash()) -> preference_list().
+
+preference_list(Index, CHash) ->
+    replication:replicate(?REPLICAION, Index, CHash).
 
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
@@ -600,7 +634,7 @@ successors(_Index, _CHash, _N) ->
 
 %% Used when resizing the ring, renaming a node, and transferring a node to a
 %% partition. How to abstract from that?
-update(IndexAsInt, Name, CHash) ->
+update(_IndexAsInt, _Name, _CHash) ->
     {}. %% TODO
 
 %% ====================================================================

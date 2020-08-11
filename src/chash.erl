@@ -36,14 +36,14 @@
 
 -module(chash).
 
--define(CHASH_IMPL, chash_legacy).
+-define(CHASH_IMPL, chash_rslicing).
 
 -export([contains_name/2, fresh/2, index_to_int/1,
          int_to_index/1, lookup/2, key_of/1, members/1,
-         merge_rings/2, next_index/2, nodes/1, offsets/1,
-         predecessors/2, predecessors/3, preference_list/2,
-         ring_increment/1, size/1, successors/2, successors/3,
-         update/3]).
+         merge_rings/2, next_index/2, nodes/1, node_size/2,
+         offsets/1, predecessors/2, predecessors/3,
+         preference_list/2, ring_increment/1, size/1,
+         successors/2, successors/3, update/3]).
 
 -export_type([chash/0, index/0, index_as_int/0]).
 
@@ -149,6 +149,14 @@ next_index(IntegerKey, CHash) ->
 -spec nodes(CHash :: chash()) -> [node_entry()].
 
 nodes(CHash) -> (?CHASH_IMPL):nodes(CHash).
+
+%% @doc Returns the distance of the index of the segment belonging to the given
+%% key to the index of the next segment
+-spec node_size(Index :: index(),
+                CHash :: chash()) -> index().
+
+node_size(Index, CHash) ->
+    (?CHASH_IMPL):node_size(Index, CHash).
 
 %% @doc Return a list of section sizes as the index type.
 -spec offsets(CHash :: chash()) -> [index()].

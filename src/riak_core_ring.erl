@@ -220,7 +220,8 @@ all_preflists(State, N) ->
     [lists:sublist(preflist(Key, State), N)
      || Key
             <- [<<(I +
-                     1):160/integer>> %% WARN: Relies on hardcoded SHA-1 space
+                     1):160/ %% WARN: Relies on hardcoded SHA-1 space
+                            integer>>
                 || {I, _Owner} <- (?MODULE):all_owners(State)]].
 
 %% @doc For two rings, return the list of owners that have differing ownership.
