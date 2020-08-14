@@ -36,7 +36,7 @@
 
 -module(chash).
 
--define(CHASH_IMPL, chash_rslicing).
+-define(CHASH_IMPL, application:getenv(riak_core, chash_impl, chash_legacy)).
 
 -export([contains_name/2, fresh/2, index_to_int/1,
          int_to_index/1, lookup/2, key_of/1, members/1,
@@ -53,7 +53,7 @@
 
 -endif.
 
--type chash() :: '?CHASH_IMPL':chash().
+-type chash() :: ?CHASH_IMPL:chash().
 
 %% A Node is the unique identifier for the owner of a given partition.
 %% An Erlang Pid works well here, but the chash module allows it to

@@ -34,7 +34,7 @@
 
 -define(SHA_MAX, 1 bsl 20 * 8).
 
--define(REPLICAION, random).
+-define(REPLICAION, application:getenv(riak_core, replication, random)).
 
 -ifdef(TEST).
 
