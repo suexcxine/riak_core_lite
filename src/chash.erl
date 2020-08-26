@@ -54,11 +54,23 @@
 %%     much wiggle-room for making really small hashing range
 %%     definitions.
 
+<<<<<<< HEAD
 -define(SMALLEST_SIGNIFICANT_FLOAT_SIZE, 0.1e-12).
+=======
+-export([contains_name/2, fresh/2, lookup/2, key_of/1,
+         members/1, merge_rings/2, next_index/2, nodes/1,
+         predecessors/2, predecessors/3, ring_increment/1,
+         size/1, successors/2, successors/3, update/3]).
+>>>>>>> master
 
 -define(SHA_MAX, 1 bsl 20 * 8).
 
+<<<<<<< HEAD
 -define(REPLICAION, application:getenv(riak_core, replication, random)).
+=======
+-define(RINGTOP,
+        trunc(math:pow(2, 160) - 1)).  % SHA-1 space
+>>>>>>> master
 
 -ifdef(TEST).
 
@@ -449,6 +461,7 @@ fresh(_NumPartitions, SeedNode) ->
     WeightMap = [{SeedNode, 100}],
     {make_float_map(WeightMap), {stale, {}}, WeightMap}.
 
+<<<<<<< HEAD
 %% @doc Converts a given index to its integer representation.
 -spec index_to_int(Index :: index()) -> Int ::
                                             integer().
@@ -461,6 +474,11 @@ index_to_int(Index) ->
 %% form.
 -spec int_to_index(Int :: integer()) -> Index ::
                                             index().
+=======
+%% @doc Find the Node that owns the partition identified by IndexAsInt.
+-spec lookup(IndexAsInt :: index_as_int(),
+             CHash :: chash()) -> chash_node().
+>>>>>>> master
 
 int_to_index(Int) -> Int / (?SHA_MAX).
 
@@ -543,6 +561,7 @@ next_index(_IntegerKey, _Chash) ->
 
 nodes(CHash) -> {FloatMap, _, _} = CHash, FloatMap.
 
+<<<<<<< HEAD
 %% @doc Returns the distance of the index of the segment belonging to the given
 %% key to the index of the next segment
 -spec node_size(Index :: index(),
@@ -560,6 +579,11 @@ n_size(Index, [{_N, I} | Rest], Current) ->
 
 %% @doc Return a list of section sizes as the index type.
 -spec offsets(CHash :: chash()) -> [index()].
+=======
+%% @doc Given an object key, return all NodeEntries in order starting at Index.
+-spec ordered_from(Index :: index(),
+                   CHash :: chash()) -> [node_entry()].
+>>>>>>> master
 
 offsets({FloatMap, _, _}) ->
     {Offsets, _} = lists:foldl(fun ({_N, I}, {O, C}) ->
@@ -573,6 +597,7 @@ offsets({FloatMap, _, _}) ->
 -spec predecessors(Index :: index() | index_as_int(),
                    CHash :: chash()) -> [node_entry()].
 
+<<<<<<< HEAD
 predecessors(_Index, _CHash) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
@@ -582,12 +607,18 @@ predecessors(_Index, _CHash) ->
     %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
     [].
+=======
+predecessors(Index, CHash) ->
+    {NumPartitions, _Nodes} = CHash,
+    predecessors(Index, CHash, NumPartitions).
+>>>>>>> master
 
 %% @doc Given an object key, return the next N NodeEntries in reverse order
 %%      starting at Index.
 -spec predecessors(Index :: index() | index_as_int(),
                    CHash :: chash(), N :: integer()) -> [node_entry()].
 
+<<<<<<< HEAD
 predecessors(_Index, _CHash, _N) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
@@ -605,12 +636,22 @@ predecessors(_Index, _CHash, _N) ->
 
 preference_list(Index, CHash) ->
     replication:replicate(?REPLICAION, Index, CHash).
+=======
+predecessors(Index, CHash, N) when is_integer(Index) ->
+    predecessors(<<Index:160/integer>>, CHash, N);
+predecessors(Index, CHash, N) ->
+    Num = max_n(N, CHash),
+    {Res, _} = lists:split(Num,
+                           lists:reverse(ordered_from(Index, CHash))),
+    Res.
+>>>>>>> master
 
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
 -spec ring_increment(NumPartitions ::
                          pos_integer()) -> pos_integer().
 
+<<<<<<< HEAD
 ring_increment(_NumPartitions) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
@@ -622,6 +663,10 @@ ring_increment(_NumPartitions) ->
     %% - To help compute the future ring in riak_core_ring
     %% - Various test scenarios
     0.
+=======
+ring_increment(NumPartitions) ->
+    (?RINGTOP) div NumPartitions.
+>>>>>>> master
 
 %% @doc Return the number of partitions in the ring.
 -spec size(CHash :: chash()) -> integer().
@@ -645,32 +690,68 @@ successors(_Index, _CHash) ->
 -spec successors(Index :: index(), CHash :: chash(),
                  N :: integer()) -> [node_entry()].
 
+<<<<<<< HEAD
 successors(_Index, _CHash, _N) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
     [].
+=======
+successors(Index, CHash, N) ->
+    Num = max_n(N, CHash),
+    Ordered = ordered_from(Index, CHash),
+    {NumPartitions, _Nodes} = CHash,
+    if Num =:= NumPartitions -> Ordered;
+       true -> {Res, _} = lists:split(Num, Ordered), Res
+    end.
+>>>>>>> master
 
 %% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
 -spec update(IndexAsInt :: index_as_int(),
              Name :: chash_node(), CHash :: chash()) -> chash().
 
+<<<<<<< HEAD
 %% Used when resizing the ring, renaming a node, and transferring a node to a
 %% partition. How to abstract from that?
 update(_IndexAsInt, _Name, _CHash) ->
     {}. %% TODO
+=======
+update(IndexAsInt, Name, CHash) ->
+    {NumPartitions, Nodes} = CHash,
+    NewNodes = lists:keyreplace(IndexAsInt, 1, Nodes,
+                                {IndexAsInt, Name}),
+    {NumPartitions, NewNodes}.
+>>>>>>> master
 
 %% ====================================================================
 %% Internal functions
 %% ====================================================================
 
 %% @private
+<<<<<<< HEAD
 -spec random_weight(WeightA :: weight(),
                     WeightB :: weight()) -> weight().
 
 random_weight(WeightA, WeightB) ->
     lists:nth(rand:uniform(2), [WeightA, WeightB]).
+=======
+%% @doc Return either N or the number of partitions in the ring, whichever
+%%      is lesser.
+-spec max_n(N :: integer(),
+            CHash :: chash()) -> integer().
+
+max_n(N, {NumPartitions, _Nodes}) ->
+    erlang:min(N, NumPartitions).
+
+%% @private
+-spec random_node(NodeA :: chash_node(),
+                  NodeB :: chash_node()) -> chash_node().
+
+random_node(NodeA, NodeA) -> NodeA;
+random_node(NodeA, NodeB) ->
+    lists:nth(rand:uniform(2), [NodeA, NodeB]).
+>>>>>>> master
 
 %% ===================================================================
 %% EUnit tests
@@ -702,6 +783,7 @@ contains_test() ->
     ?assertEqual(true, (contains_name(the_node, CHash))),
     ?assertEqual(false,
                  (contains_name(some_other_node, CHash))).
+<<<<<<< HEAD
 
 simple_size_test() ->
     ?assertEqual(8,
@@ -713,10 +795,27 @@ successors_length_test() ->
                  (length(chash_rslicing:successors(chash_rslicing:key_of(0),
                                                    chash_rslicing:fresh(8,
                                                                         the_node))))).
+=======
+
+max_n_test() ->
+    CHash = chash:fresh(8, the_node),
+    ?assertEqual(1, (max_n(1, CHash))),
+    ?assertEqual(8, (max_n(11, CHash))).
+
+simple_size_test() ->
+    ?assertEqual(8,
+                 (length(chash:nodes(chash:fresh(8, the_node))))).
+
+successors_length_test() ->
+    ?assertEqual(8,
+                 (length(chash:successors(chash:key_of(0),
+                                          chash:fresh(8, the_node))))).
+>>>>>>> master
 
 inverse_pred_test() ->
     CHash = chash_rslicing:fresh(8, the_node),
     S = [I
+<<<<<<< HEAD
          || {I, _}
                 <- chash_rslicing:successors(chash_rslicing:key_of(4),
                                              CHash)],
@@ -733,5 +832,19 @@ merge_test() ->
     CHash = chash_rslicing:merge_rings(CHashA, CHashB),
     ?assertEqual(node_one,
                  (chash_rslicing:lookup(0, CHash))).
+=======
+         || {I, _} <- chash:successors(chash:key_of(4), CHash)],
+    P = [I
+         || {I, _}
+                <- chash:predecessors(chash:key_of(4), CHash)],
+    ?assertEqual(S, (lists:reverse(P))).
+
+merge_test() ->
+    CHashA = chash:fresh(8, node_one),
+    CHashB = chash:update(0, node_one,
+                          chash:fresh(8, node_two)),
+    CHash = chash:merge_rings(CHashA, CHashB),
+    ?assertEqual(node_one, (chash:lookup(0, CHash))).
+>>>>>>> master
 
 -endif.

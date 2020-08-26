@@ -663,38 +663,32 @@ mark_handoff_complete(SrcIdx, Target, SeenIdxs, Mod,
                       resize) ->
     Prev = node(),
     Source = {SrcIdx, Prev},
-    Result = riak_core_ring_manager:ring_trans(fun (Ring,
-                                                    _) ->
-                                                       Owner =
-                                                           riak_core_ring:index_owner(Ring,
-                                                                                      SrcIdx),
-                                                       Status =
-                                                           riak_core_ring:resize_transfer_status(Ring,
-                                                                                                 Source,
-                                                                                                 Target,
-                                                                                                 Mod),
-                                                       case {Owner, Status} of
-                                                         {Prev, awaiting} ->
-                                                             F = fun (SeenIdx,
-                                                                      RingAcc) ->
-                                                                         riak_core_ring:schedule_resize_transfer(RingAcc,
-                                                                                                                 Source,
-                                                                                                                 SeenIdx)
-                                                                 end,
-                                                             Ring2 =
-                                                                 lists:foldl(F,
-                                                                             Ring,
-                                                                             ordsets:to_list(SeenIdxs)),
-                                                             Ring3 =
-                                                                 riak_core_ring:resize_transfer_complete(Ring2,
-                                                                                                         Source,
-                                                                                                         Target,
-                                                                                                         Mod),
-                                                             %% local ring optimization (see below)
-                                                             {set_only, Ring3};
-                                                         _ -> ignore
-                                                       end
-                                               end,
+    TransFun = fun (Ring, _) ->
+                       Owner = riak_core_ring:index_owner(Ring, SrcIdx),
+                       Status = riak_core_ring:resize_transfer_status(Ring,
+                                                                      Source,
+                                                                      Target,
+                                                                      Mod),
+                       case {Owner, Status} of
+                         {Prev, awaiting} ->
+                             F = fun (SeenIdx, RingAcc) ->
+                                         riak_core_ring:schedule_resize_transfer(RingAcc,
+                                                                                 Source,
+                                                                                 SeenIdx)
+                                 end,
+                             Ring2 = lists:foldl(F, Ring,
+                                                 ordsets:to_list(SeenIdxs)),
+                             Ring3 =
+                                 riak_core_ring:resize_transfer_complete(Ring2,
+                                                                         Source,
+                                                                         Target,
+                                                                         Mod),
+                             %% local ring optimization (see below)
+                             {set_only, Ring3};
+                         _ -> ignore
+                       end
+               end,
+    Result = riak_core_ring_manager:ring_trans(TransFun,
                                                []),
     case Result of
       {ok, _NewRing} -> resize;

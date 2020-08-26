@@ -219,9 +219,7 @@ all_owners(State) -> chash:nodes(State#chstate.chring).
 all_preflists(State, N) ->
     [lists:sublist(preflist(Key, State), N)
      || Key
-            <- [<<(I +
-                     1):160/ %% WARN: Relies on hardcoded SHA-1 space
-                            integer>>
+            <- [<<(I + 1):160/integer>>
                 || {I, _Owner} <- (?MODULE):all_owners(State)]].
 
 %% @doc For two rings, return the list of owners that have differing ownership.
@@ -373,7 +371,8 @@ owner_node(State) -> State#chstate.nodename.
 %% @doc For a given object key, produce the ordered list of
 %%      {partition,node} pairs that could be responsible for that object.
 -spec preflist(Key :: binary(),
-               State :: chstate()) -> chash:preference_list().
+               State :: chstate()) -> [{Index :: chash:index_as_int(),
+                                        Node :: term()}].
 
 preflist(Key, State) ->
     chash:preference_list(Key, State#chstate.chring).
