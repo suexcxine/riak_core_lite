@@ -278,7 +278,7 @@ fresh(RingSize, NodeName) ->
 %%      by a dummy host
 -spec resize(chstate(), ring_size()) -> chstate().
 
-%% NOTE with chash_rslicing this operation is not necessary anymore.
+%% NOTE with random slicing this operation is not necessary anymore.
 %% TODO find out when resize is called
 resize(State, NewRingSize) ->
     NewRing = lists:foldl(fun ({Idx, Owner}, RingAcc) ->

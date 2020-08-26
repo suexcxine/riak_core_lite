@@ -119,8 +119,6 @@ step(Key, CHash, Offset, PrefList) ->
 
 -ifdef(TEST).
 
-%% Currently only chash_rslicing is used as test in put as chash_legacy does not
-%% use this module.
 test_chash() ->
     W0 = [{node0, 100}],
     W1 = [{node0, 100}, {node1, 100}],
@@ -130,7 +128,7 @@ test_chash() ->
     W4 = [{node0, 100}, {node1, 100}, {node2, 100},
           {node3, 150}],
     F = lists:foldl(fun (WM, FM) ->
-                            chash_rslicing:make_float_map(FM, WM)
+                            chash:make_float_map(FM, WM)
                     end,
                     [], [W0, W1, W2, W3, W4]),
     {F, {stale, {}}, W4}.
