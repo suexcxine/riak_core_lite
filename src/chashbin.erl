@@ -41,6 +41,9 @@
 
 -type owners_bin() :: <<_:_*176>>.
 
+%% 64 bits for wieht, 16 bits for node id
+-type weights_bin() :: <<_:_*80>>.
+
 -type index() :: chash:index_as_int().
 
 -type pred_fun() :: fun(({index(),
@@ -52,12 +55,14 @@
 
 -record(chashbin,
         {size  :: pos_integer(), owners  :: owners_bin(),
+         weights :: weights_bin(),
          nodes  :: erlang:tuple(node())}).
 
 -else.
 
 -record(chashbin,
         {size  :: pos_integer(), owners  :: owners_bin(),
+         weights :: weights_bin(),
          nodes  :: erlang:tuple(node())}).
 
 -endif.
@@ -77,27 +82,30 @@
 %% @doc Create a `chashbin' from the provided `chash'
 -spec create(chash:chash()) -> chashbin().
 
-create({Size, Owners}) ->
-    Nodes1 = [Node || {_, Node} <- Owners],
-    Nodes2 = lists:usort(Nodes1),
+create(CHash) ->
+    Nodes2 = chash:members(CHash),
     Nodes3 = lists:zip(Nodes2,
                        lists:seq(1, length(Nodes2))),
-    Bin = create_bin(Owners, Nodes3, <<>>),
-    #chashbin{size = Size, owners = Bin,
+    OBin = owner_bin(chash:nodes(CHash), Nodes3, <<>>),
+    WBin = weight_bin(chash:weights(CHash), Nodes3, <<>>),
+    #chashbin{size = chash:size(CHash), owners = OBin, weights = WBin,
               nodes = list_to_tuple(Nodes2)}.
 
 %% @doc Convert a `chashbin' back to a `chash'
 -spec to_chash(chashbin()) -> chash:chash().
 
-to_chash(CHBin = #chashbin{size = Size}) ->
-    L = to_list(CHBin), {Size, L}.
+to_chash(CHBin) ->
+    {L, W} = to_list(CHBin), {L, {stale, {}}, W}.
 
-%% @doc Convert a `chashbin' to a list of `{Index, Owner}' pairs
--spec to_list(chashbin()) -> [{index(), node()}].
+%% @doc Convert a `chashbin' to a list of `{Owner, Index}' pairs and a list of
+%% `{Owner, Weight}' pairs.
+-spec to_list(chashbin()) -> {[chash:node_entry()], [chash:owner_weight()]}.
 
-to_list(#chashbin{owners = Bin, nodes = Nodes}) ->
-    [{Idx, element(Id, Nodes)}
-     || <<Idx:160/integer, Id:16/integer>> <= Bin].
+to_list(#chashbin{owners = OBin, weights = WBin, nodes = Nodes}) ->
+    {[{element(Id, Nodes), chash:int_to_index(Idx)}
+     || <<Idx:160/integer, Id:16/integer>> <= OBin],
+    [{element(Id, Nodes), Weight}
+     || <<Weight:64/integer, Id:16/integer>> <= WBin]}.
 
 %% @doc
 %% Convert a `chashbin' to a list of `{Index, Owner}' pairs for
@@ -115,6 +123,8 @@ to_list_filter(Pred,
 -spec responsible_index(chash_key(),
                         chashbin()) -> index().
 
+%% TODO Is there an efficient version of this possible with random slicing?
+%% What is the difference between position and index?
 responsible_index(<<HashKey:160/integer>>, CHBin) ->
     responsible_index(HashKey, CHBin);
 responsible_index(HashKey, #chashbin{size = Size}) ->
@@ -125,6 +135,8 @@ responsible_index(HashKey, #chashbin{size = Size}) ->
 -spec responsible_position(chash_key(),
                            chashbin()) -> non_neg_integer().
 
+%% TODO Is there an efficient version of this possible with random slicing?
+%% What is the difference between position and index?
 responsible_position(<<HashKey:160/integer>>, CHBin) ->
     responsible_position(HashKey, CHBin);
 responsible_position(HashKey, #chashbin{size = Size}) ->
@@ -136,7 +148,7 @@ responsible_position(HashKey, #chashbin{size = Size}) ->
 
 index_owner(Idx, CHBin) ->
     case itr_value(exact_iterator(Idx, CHBin)) of
-      {Idx, Owner} -> Owner;
+      {Owner, _Index} -> Owner;
       _ ->
           %% Match the behavior for riak_core_ring:index_owner/2
           exit({badmatch, false})
@@ -180,7 +192,7 @@ itr_value(#iterator{pos = Pos,
 
 itr_next(Itr = #iterator{pos = Pos, start = Start,
                          chbin = CHBin}) ->
-    Pos2 = (Pos + 1) rem CHBin#chashbin.size,
+    Pos2 = (Pos + 1) rem CHBin#chashbin.size, %% TODO change for random slicing
     case Pos2 of
       Start -> done;
       _ -> Itr#iterator{pos = Pos2}
@@ -231,15 +243,25 @@ itr_next_while(Pred, Itr) ->
 %% Internal functions
 %% ===================================================================
 
-%% Convert list of {Index, Owner} pairs into `chashbin' binary representation
--spec create_bin([{index(), node()}],
+%% Convert list of {Owner, Index} pairs into `chashbin' binary representation
+-spec owner_bin([chash:node_entry()],
                  [{node(), pos_integer()}], binary()) -> owners_bin().
 
-create_bin([], _, Bin) -> Bin;
-create_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
+owner_bin([], _, Bin) -> Bin;
+owner_bin([{Owner, Idx} | Owners], Nodes, Bin) ->
     {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
-    Bin2 = <<Bin/binary, Idx:160/integer, Id:16/integer>>,
-    create_bin(Owners, Nodes, Bin2).
+    Bin2 = <<Bin/binary, (chash:index_to_int(Idx)):160/integer, Id:16/integer>>,
+    owner_bin(Owners, Nodes, Bin2).
+
+%% Convert list of {Owner, Weight} pairs into `chashbin' binary representation
+-spec weight_bin([chash:owner_weight()],
+                [{node(), pos_integer()}], binary()) -> weights_bin().
+
+weight_bin([], _, Bin) -> Bin;
+weight_bin([{Owner, Weight} | Weights], Nodes, Bin) ->
+    {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
+    Bin2 = <<Bin/binary, Weight:64/integer, Id:16/integer>>,
+    owner_bin(Weights, Nodes, Bin2).
 
 %% Convert ring index into ring position
 index_position(<<Idx:160/integer>>, CHBin) ->

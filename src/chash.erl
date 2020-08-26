@@ -79,7 +79,7 @@
          merge_rings/2, next_index/2, nodes/1, node_size/2,
          offsets/1, predecessors/2, predecessors/3,
          preference_list/2, ring_increment/1, size/1,
-         successors/2, successors/3, update/3]).
+         successors/2, successors/3, update/3, weights/1]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -124,7 +124,7 @@
 
 -type num_partitions() :: pos_integer().
 
-%% A single node is identified by its term, starting index and weight.
+%% A single node is identified by its term and starting index.
 -type node_entry() :: {owner_name(), index()}.
 
 -type chash_node() :: owner_name().
@@ -660,6 +660,12 @@ successors(_Index, _CHash, _N) ->
 %% partition. How to abstract from that?
 update(_IndexAsInt, _Name, _CHash) ->
     {}. %% TODO
+
+%% @doc Retrieves the current weight list of the chash.
+-spec weights(CHash :: chash()) -> [weight()].
+
+weights({_, _, Weights}) ->
+    Weights.
 
 %% ====================================================================
 %% Internal functions
