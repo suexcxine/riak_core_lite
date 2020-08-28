@@ -123,25 +123,41 @@ to_list_filter(Pred,
 -spec responsible_index(chash_key(),
                         chashbin()) -> index().
 
-%% TODO Is there an efficient version of this possible with random slicing?
-%% What is the difference between position and index?
 responsible_index(<<HashKey:160/integer>>, CHBin) ->
     responsible_index(HashKey, CHBin);
-responsible_index(HashKey, #chashbin{size = Size}) ->
-    Inc = chash:ring_increment(Size),
-    (HashKey div Inc + 1) rem Size * Inc.
+responsible_index(HashKey, #chashbin{owners = Bin}) ->
+    {Res, true} = lists:foldl(fun(I, {Start, Done}) -> 
+            case Done of
+                true -> {Start, true};
+                false ->
+                    End = Start + I,
+                    case (HashKey >= Start) and (HashKey < End) of
+                        true -> {Start, true};
+                        false -> {End, false}
+                    end
+            end
+        end, {0, false}, [Idx || <<Idx:160/integer, _:16/integer>> <= Bin]),
+    Res.
 
 %% @doc Determine the ring position responsible for a given chash key
 -spec responsible_position(chash_key(),
                            chashbin()) -> non_neg_integer().
 
-%% TODO Is there an efficient version of this possible with random slicing?
-%% What is the difference between position and index?
 responsible_position(<<HashKey:160/integer>>, CHBin) ->
     responsible_position(HashKey, CHBin);
-responsible_position(HashKey, #chashbin{size = Size}) ->
-    Inc = chash:ring_increment(Size),
-    (HashKey div Inc + 1) rem Size.
+responsible_position(HashKey, #chashbin{owners = Bin}) ->
+    {Res, _, true} = lists:foldl(fun(I, {Pos, Start, Done}) -> 
+            case Done of
+                true -> {Pos, Start, true};
+                false ->
+                    End = Start + I,
+                    case (HashKey >= Start) and (HashKey < End) of
+                        true -> {Pos, Start, true};
+                        false -> {Pos + 1, End, false}
+                    end
+            end
+        end, {1, 0, false}, [Idx || <<Idx:160/integer, _:16/integer>> <= Bin]),
+    Res.
 
 %% @doc Return the node that owns the given index
 -spec index_owner(index(), chashbin()) -> node().
@@ -192,7 +208,7 @@ itr_value(#iterator{pos = Pos,
 
 itr_next(Itr = #iterator{pos = Pos, start = Start,
                          chbin = CHBin}) ->
-    Pos2 = (Pos + 1) rem CHBin#chashbin.size, %% TODO change for random slicing
+    Pos2 = (Pos + 1) rem CHBin#chashbin.size,
     case Pos2 of
       Start -> done;
       _ -> Itr#iterator{pos = Pos2}
@@ -263,15 +279,9 @@ weight_bin([{Owner, Weight} | Weights], Nodes, Bin) ->
     Bin2 = <<Bin/binary, Weight:64/integer, Id:16/integer>>,
     owner_bin(Weights, Nodes, Bin2).
 
-%% Convert ring index into ring position
-index_position(<<Idx:160/integer>>, CHBin) ->
-    index_position(Idx, CHBin);
-index_position(Idx, #chashbin{size = Size}) ->
-    Inc = chash:ring_increment(Size), Idx div Inc rem Size.
-
 %% Return iterator pointing to the given index
 exact_iterator(<<Idx:160/integer>>, CHBin) ->
     exact_iterator(Idx, CHBin);
 exact_iterator(Idx, CHBin) ->
-    Pos = index_position(Idx, CHBin),
+    Pos = responsible_position(Idx, CHBin),
     #iterator{pos = Pos, start = Pos, chbin = CHBin}.
