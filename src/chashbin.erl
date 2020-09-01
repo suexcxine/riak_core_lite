@@ -41,7 +41,7 @@
 
 -type owners_bin() :: <<_:_*176>>.
 
-%% 64 bits for wieht, 16 bits for node id
+%% 64 bits for weight, 16 bits for node id
 -type weights_bin() :: <<_:_*80>>.
 
 -type index() :: chash:index_as_int().
