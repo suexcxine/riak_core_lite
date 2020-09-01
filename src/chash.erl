@@ -96,9 +96,15 @@
 %% partitions that are assigned to various owners.  The sum of all
 %% floats must be exactly 1.0 (or close enough for floating point
 %% purposes).
--type float_map() :: [node_entry()].
+-type float_map() :: [{owner_name(), float()}].
 
-%% A nextfloat_list lists all sections by their end and the owning node.
+%% A nextfloat_list differs from a float_map in two respects: 1) nextfloat_list
+%% contains tuples with the node name in 2nd position, 2) the float() at each
+%% position I_n > I_m, for all n, m such that n > m.
+%% For example, a nextfloat_list of the float_map example above,
+%% [{0.25, {br1, nd1}}, {0.75, {br2, nd1}}, {1.0, {br3, nd1}].
+%% WARN The description and example does not fit the implementation of
+%% chash_float_map_to_nextfloat_list/1 (I think).
 -type nextfloat_list() :: [{index(), owner_name()}].
 
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
@@ -119,10 +125,11 @@
 %% TODO check how this can be streamlined to make working with it easier.
 -type owner_weight_list() :: [owner_weight()].
 
--type tree_status() :: stale | up_to_date.
-
--type chash() :: {float_map(),
-                  {tree_status(), float_tree()}, owner_weight_list()}.
+%% The chash type is a pair of a nextfloat_list and the according float tree
+%% for an efficient query.
+%% When the float tree is not up-to-date with the list it is stale instead.
+-type chash() :: {nextfloat_list(),
+                  stale | float_tree()}.
 
 -type index() :: float().
 
@@ -131,19 +138,19 @@
 -type num_partitions() :: pos_integer().
 
 %% A single node is identified by its term and starting index.
--type node_entry() :: {owner_name(), index()}.
+-type node_entry() :: {index(), owner_name()}.
 
 -type chash_node() :: owner_name().
 
 -type preference_list() :: [chash_node()].
 
+%% TODO Is it necessary to export those?
 -export_type([float_map/0, float_tree/0]).
 
 %% chash API
 -export_type([chash/0, index/0, index_as_int/0]).
 
 %% @doc Create a float map, based on a basic owner weight list.
-
 -spec
      make_float_map(owner_weight_list()) -> float_map().
 
@@ -155,7 +162,6 @@ make_float_map(NewOwnerWeights) ->
 %%
 %% The weights in the new weight list may be different than (or the
 %% same as) whatever weights were used to make the older float map.
-
 -spec make_float_map(float_map(),
                      owner_weight_list()) -> float_map().
 
@@ -200,23 +206,6 @@ make_float_map(OldFloatMap, NewOwnerWeights) ->
                         NewOwnerWeights),
     make_float_map2(OldFloatMap2, DiffMap, NewOwnerWeights).
 
--spec chash_gb_next(float(), float_tree()) -> {float(),
-                                               owner_name()}.
-
-chash_gb_next(X, {_, GbTree}) ->
-    chash_gb_next1(X, GbTree).
-
-chash_gb_next1(X, {Key, Val, Left, _Right})
-    when X < Key ->
-    case chash_gb_next1(X, Left) of
-      nil -> {Key, Val};
-      Res -> Res
-    end;
-chash_gb_next1(X, {Key, _Val, _Left, Right})
-    when X >= Key ->
-    chash_gb_next1(X, Right);
-chash_gb_next1(_X, nil) -> nil.
-
 %% @doc Not used directly, but can give a developer an idea of how well
 %% chash_float_map_to_nextfloat_list will do for a given value of Max.
 %%
@@ -235,16 +224,19 @@ chash_gb_next1(_X, nil) -> nil.
 %% <li> 'b' uses the slots 48-94 </li>
 %% <li> 'c' uses the slots 95-100 </li>
 %% </ul>
+-spec chash_scale_to_int_interval(NewFloatMap ::
+                                      float_map(),
+                                  Max :: integer()) -> [owner_int_range()].
 
 chash_scale_to_int_interval(NewFloatMap, Max) ->
     chash_scale_to_int_interval(NewFloatMap, 0, Max).
 
-%% @type nextfloat_list() = list({float(), brick()}).  A nextfloat_list
-%% differs from a float_map in two respects: 1) nextfloat_list contains
-%% tuples with the brick name in 2nd position, 2) the float() at each
-%% position I_n > I_m, for all n, m such that n > m.
-%% For example, a nextfloat_list of the float_map example above,
-%% [{0.25, {br1, nd1}}, {0.75, {br2, nd1}}, {1.0, {br3, nd1}].
+%% @doc Scales the float map to the int interval [0, Max).
+-spec chash_scale_to_int_interval(NewFloatMap ::
+                                      float_map(),
+                                  Cur :: integer(),
+                                  Max :: integer()) -> [{owner_name(),
+                                                         integer(), integer()}].
 
 chash_scale_to_int_interval([{Ch, _Wt}], Cur, Max) ->
     [{Ch, Cur, Max}];
@@ -257,7 +249,6 @@ chash_scale_to_int_interval([{Ch, Wt} | T], Cur, Max) ->
 
 %% @doc Make a pretty/human-friendly version of a float map that describes
 %% integer ranges between 1 and `Scale'.
-
 -spec pretty_with_integers(float_map(),
                            integer()) -> [owner_int_range()].
 
@@ -267,7 +258,6 @@ pretty_with_integers(Map, Scale) ->
 %% @doc Make a pretty/human-friendly version of a float map (based
 %% upon a float map created from `OldWeights' and `NewWeights') that
 %% describes integer ranges between 1 and `Scale'.
-
 -spec pretty_with_integers(owner_weight_list(),
                            owner_weight_list(),
                            integer()) -> [owner_int_range()].
@@ -279,7 +269,6 @@ pretty_with_integers(OldWeights, NewWeights, Scale) ->
 
 %% @doc Create a float tree, which is the rapid lookup data structure
 %% for consistent hash queries.
-
 -spec make_tree(float_map()) -> float_tree().
 
 make_tree(Map) ->
@@ -287,7 +276,6 @@ make_tree(Map) ->
 
 %% @doc Low-level function for querying a float tree: the (floating
 %% point) point within the unit interval.
-
 -spec query_tree(float(), float_tree()) -> {float(),
                                             owner_name()}.
 
@@ -300,7 +288,6 @@ query_tree(Val, Tree)
 %% The two parts of the summary are: a per-owner total of the unit
 %% interval range(s) owned by each owner, and a total sum of all
 %% per-owner ranges (which should be 1.0 but is not enforced).
-
 -spec sum_map_weights(float_map()) -> {{per_owner,
                                         float_map()},
                                        {weight_sum, float()}}.
@@ -321,7 +308,6 @@ sum_map_weights([], LastSZ, LastSZ_total) ->
     [{LastSZ, LastSZ_total}].
 
 %% @doc Query a float map with a binary (inefficient).
-
 -spec hash_binary_via_float_map(binary(),
                                 float_map()) -> {float(), owner_name()}.
 
@@ -332,7 +318,6 @@ hash_binary_via_float_map(Key, Map) ->
     query_tree(Float, Tree).
 
 %% @doc Query a float tree with a binary.
-
 -spec hash_binary_via_float_tree(binary(),
                                  float_tree()) -> {float(), owner_name()}.
 
@@ -349,7 +334,7 @@ hash_binary_via_float_tree(Key, Tree) ->
 -spec contains_name(Name :: chash_node(),
                     CHash :: chash()) -> boolean().
 
-contains_name(Name, {FloatMap, _, _}) ->
+contains_name(Name, {FloatMap, _}) ->
     lists:keymember(Name, 2, FloatMap).
 
 %% @doc Create a brand new ring.  The size and seednode are specified;
@@ -363,9 +348,11 @@ fresh(_NumPartitions, SeedNode) ->
     %% Not sure what to do with NumPartitions
     %% Currently weight is not considered, set to 100 for every node.
     WeightMap = [{SeedNode, 100}],
-    {make_float_map(WeightMap), {stale, {}}, WeightMap}.
+    {chash_float_map_to_nextfloat_list(make_float_map(WeightMap)),
+     stale}.
 
-%% @doc Converts a given index to its integer representation.
+%% @doc Converts a given index to its integer representation. Possible loss of
+%% precision.
 -spec index_to_int(Index :: index()) -> Int ::
                                             integer().
 
@@ -374,7 +361,7 @@ index_to_int(Index) ->
     round(Index * (?SHA_MAX)).
 
 %% @doc Converts a given integer representation of an index to its original
-%% form.
+%% form. Possible loss of precision.
 -spec int_to_index(Int :: integer()) -> Index ::
                                             index().
 
@@ -386,12 +373,11 @@ int_to_index(Int) -> Int / (?SHA_MAX).
 
 lookup(Index, CHash) when is_integer(Index) ->
     lookup(int_to_index(Index), CHash);
-lookup(Index,
-       {FloatMap, {stale, _FloatTree}, Weights}) ->
+lookup(Index, {NextList, stale}) ->
     %% optimization: also return new chash() with updated tree
     lookup(Index,
-           {FloatMap, {up_to_date, make_tree(FloatMap)}, Weights});
-lookup(Index, {_, {up_to_date, FloatTree}, _}) ->
+           {NextList, chash_nextfloat_list_to_gb_tree(NextList)});
+lookup(Index, {_, FloatTree}) ->
     query_tree(Index, FloatTree).
 
 %% @doc Given any term used to name an object, produce that object's key
@@ -407,39 +393,18 @@ key_of(ObjectName) ->
 %% @doc Return all Nodes that own any partitions in the ring.
 -spec members(CHash :: chash()) -> [chash_node()].
 
-members({FloatMap, _, _}) ->
-    lists:usort([Name || {Name, _} <- FloatMap]).
+members({NextList, _}) ->
+    lists:usort([Name || {_, Name} <- NextList]).
 
 %% @doc Return a randomized merge of two rings.
 %%      If multiple nodes are actively claiming nodes in the same
 %%      time period, churn will occur.  Be prepared to live with it.
+%% TODO this is not used in any other module and does not make any sense in the
+%% API.
 -spec merge_rings(CHashA :: chash(),
                   CHashB :: chash()) -> chash().
 
-merge_rings(CHashA, CHashB) ->
-    {FloatMapA, {_, FloatTreeA}, WeightListA} = CHashA,
-    {_FloatMapB, {_, _FloatTreeB}, WeightListB} = CHashB,
-    %% For each owner in WeightListA use a random weight of owner A or B if
-    %% there exists one in WeightListB. Owners that are disjunct between A and B
-    %% are included in the result.
-    %% Merge is exported and never used. Is it even necessary? What is/was the
-    %% use case?
-    NodesA = members(CHashA),
-    NodesB = members(CHashB),
-    DisjunctWeightsA = [{Owner, Weight}
-                        || {Owner, Weight} <- WeightListA,
-                           lists:member(Owner, NodesB)],
-    DisjunctWeightsB = [{Owner, Weight}
-                        || {Owner, Weight} <- WeightListB,
-                           lists:member(Owner, NodesA)],
-    ConjunctWeights = [{Owner,
-                        random_weight(WeightA, WeightB)}
-                       || {{Owner, WeightA}, {Owner, WeightB}}
-                              <- lists:zip(WeightListA, WeightListB)],
-    NewOwnerWeights = lists:append([DisjunctWeightsA,
-                                    DisjunctWeightsB, ConjunctWeights]),
-    {make_float_map(FloatMapA, NewOwnerWeights),
-     {stale, FloatTreeA}, NewOwnerWeights}.
+merge_rings(CHashA, _CHashB) -> CHashA.
 
 %% @doc Given the integer representation of a chash key,
 %%      return the next ring index integer value.
@@ -457,31 +422,36 @@ next_index(_IntegerKey, _Chash) ->
 %% @doc Return the entire set of NodeEntries in the ring.
 -spec nodes(CHash :: chash()) -> [node_entry()].
 
-nodes(CHash) -> {FloatMap, _, _} = CHash, FloatMap.
+nodes(CHash) -> {NextList, _} = CHash, NextList.
 
 %% @doc Returns the distance of the index of the segment belonging to the given
 %% key to the index of the next segment
 -spec node_size(Index :: index(),
                 CHash :: chash()) -> index().
 
-node_size(Index, {FloatMap, _Tree, _Weights}) ->
-    n_size(Index, FloatMap, 0.0).
-
-n_size(_Index, [{_N, I}], _Current) -> I;
-n_size(Index, [{_N, I} | Rest], Current) ->
-    case (Index >= Current) and (Index < I + Current) of
-      true -> I;
-      false -> n_size(Index, Rest, I + Current)
-    end.
+node_size(Index, {NextList, _Tree}) ->
+    {Size, _} = lists:foldl(fun ({I, _}, {Start, Done}) ->
+                                    case Done of
+                                      true -> {Start, true};
+                                      false ->
+                                          case (Index >= Start) and (Index < I)
+                                              of
+                                            true -> {I - Start, true};
+                                            false -> {I, false}
+                                          end
+                                    end
+                            end,
+                            {0.0, false}, NextList),
+    Size.
 
 %% @doc Return a list of section sizes as the index type.
 -spec offsets(CHash :: chash()) -> [index()].
 
-offsets({FloatMap, _, _}) ->
-    {Offsets, _} = lists:foldl(fun ({_N, I}, {O, C}) ->
+offsets({NextList, _}) ->
+    {Offsets, _} = lists:foldl(fun ({I, _N}, {O, C}) ->
                                        {[I - C | O], I}
                                end,
-                               {[], 0.0}, FloatMap),
+                               {[], 0.0}, NextList),
     lists:reverse(Offsets).
 
 %% @doc Given an object key, return all NodeEntries in reverse order
@@ -542,7 +512,7 @@ ring_increment(_NumPartitions) ->
 %% @doc Return the number of partitions in the ring.
 -spec size(CHash :: chash()) -> integer().
 
-size({FloatMap, _, _}) -> lists:size(FloatMap).
+size({NextList, _, _}) -> lists:size(NextList).
 
 %% @doc Given an object key, return all NodeEntries in order starting at Index.
 -spec successors(Index :: index(),
@@ -732,6 +702,19 @@ chash_float_map_to_nextfloat_list(FloatMap)
     lists:reverse(NFs0).
 
 %% @private
+%% Converts a nextfloat list to a float map.
+-spec nextfloat_list_to_float_map(NextFloatList ::
+                                      nextfloat_list()) -> float_map().
+
+nextfloat_list_to_float_map(NextFloatList) ->
+    {_, L} = lists:foldl(fun ({Index, Name},
+                              {Start, List}) ->
+                                 {Index, [{Name, Index - Start} | List]}
+                         end,
+                         {0.0, []}, NextFloatList),
+    L.
+
+%% @private
 %% Creates a search tree from a nextfloat list.
 -spec
      chash_nextfloat_list_to_gb_tree(nextfloat_list()) -> gb_trees:tree().
@@ -744,6 +727,30 @@ chash_nextfloat_list_to_gb_tree(NextFloatList) ->
     %% at the far "right" of the list ... 42.0 is much greater than 1.0.
     NFs = NextFloatList ++ [{42.0, Name}],
     gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
+
+%% @private
+%% Queries the tree with the key.
+-spec chash_gb_next(float(), float_tree()) -> {float(),
+                                               owner_name()}.
+
+chash_gb_next(X, {_, GbTree}) ->
+    chash_gb_next1(X, GbTree).
+
+%% @private
+%% Queries a single node of a gb tree.
+-spec chash_gb_next1(X :: float(), term()) -> {float(),
+                                               owner_name()}.
+
+chash_gb_next1(X, {Key, Val, Left, _Right})
+    when X < Key ->
+    case chash_gb_next1(X, Left) of
+      nil -> {Key, Val};
+      Res -> Res
+    end;
+chash_gb_next1(X, {Key, _Val, _Left, Right})
+    when X >= Key ->
+    chash_gb_next1(X, Right);
+chash_gb_next1(_X, nil) -> nil.
 
 %% ===================================================================
 %% EUnit tests

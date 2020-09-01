@@ -41,9 +41,6 @@
 
 -type owners_bin() :: <<_:_*176>>.
 
-%% 64 bits for weight, 16 bits for node id
--type weights_bin() :: <<_:_*80>>.
-
 -type index() :: chash:index_as_int().
 
 -type pred_fun() :: fun(({index(),
@@ -55,14 +52,12 @@
 
 -record(chashbin,
         {size  :: pos_integer(), owners  :: owners_bin(),
-         weights  :: weights_bin(),
          nodes  :: erlang:tuple(node())}).
 
 -else.
 
 -record(chashbin,
         {size  :: pos_integer(), owners  :: owners_bin(),
-         weights  :: weights_bin(),
          nodes  :: erlang:tuple(node())}).
 
 -endif.
@@ -87,9 +82,8 @@ create(CHash) ->
     Nodes3 = lists:zip(Nodes2,
                        lists:seq(1, length(Nodes2))),
     OBin = owner_bin(chash:nodes(CHash), Nodes3, <<>>),
-    WBin = weight_bin(chash:weights(CHash), Nodes3, <<>>),
     #chashbin{size = chash:size(CHash), owners = OBin,
-              weights = WBin, nodes = list_to_tuple(Nodes2)}.
+              nodes = list_to_tuple(Nodes2)}.
 
 %% @doc Convert a `chashbin' back to a `chash'
 -spec to_chash(chashbin()) -> chash:chash().
@@ -99,15 +93,11 @@ to_chash(CHBin) ->
 
 %% @doc Convert a `chashbin' to a list of `{Owner, Index}' pairs and a list of
 %% `{Owner, Weight}' pairs.
--spec to_list(chashbin()) -> {[chash:node_entry()],
-                              [chash:owner_weight()]}.
+-spec to_list(chashbin()) -> [chash:node_entry()].
 
-to_list(#chashbin{owners = OBin, weights = WBin,
-                  nodes = Nodes}) ->
-    {[{element(Id, Nodes), chash:int_to_index(Idx)}
-      || <<Idx:160/integer, Id:16/integer>> <= OBin],
-     [{element(Id, Nodes), Weight}
-      || <<Weight:64/integer, Id:16/integer>> <= WBin]}.
+to_list(#chashbin{owners = OBin, nodes = Nodes}) ->
+    [{element(Id, Nodes), chash:int_to_index(Idx)}
+     || <<Idx:160/integer, Id:16/integer>> <= OBin].
 
 %% @doc
 %% Convert a `chashbin' to a list of `{Index, Owner}' pairs for
@@ -283,16 +273,6 @@ owner_bin([{Owner, Idx} | Owners], Nodes, Bin) ->
     Bin2 = <<Bin/binary,
              (chash:index_to_int(Idx)):160/integer, Id:16/integer>>,
     owner_bin(Owners, Nodes, Bin2).
-
-%% Convert list of {Owner, Weight} pairs into `chashbin' binary representation
--spec weight_bin([chash:owner_weight()],
-                 [{node(), pos_integer()}], binary()) -> weights_bin().
-
-weight_bin([], _, Bin) -> Bin;
-weight_bin([{Owner, Weight} | Weights], Nodes, Bin) ->
-    {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
-    Bin2 = <<Bin/binary, Weight:64/integer, Id:16/integer>>,
-    owner_bin(Weights, Nodes, Bin2).
 
 %% Return iterator pointing to the given index
 exact_iterator(<<Idx:160/integer>>, CHBin) ->
