@@ -98,6 +98,9 @@
 %% purposes).
 -type float_map() :: [node_entry()].
 
+%% A nextfloat_list lists all sections by their end and the owning node.
+-type nextfloat_list() :: [{index(), owner_name()}].
+
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
 %% never valid in our case.  But teaching Dialyzer that is difficult.
 -opaque float_tree() :: gb_trees:tree(float(),
@@ -112,6 +115,8 @@
 %% A owner_weight_list is a definition of brick assignments over the
 %% unit interval [0.0, 1.0].  The sum of all floats must be 1.0.  For
 %% example, [{{br1,nd1}, 0.25}, {{br2,nd1}, 0.5}, {{br3,nd1}, 0.25}].
+%% WARN description does not fit types but usage seems to fit.
+%% TODO check how this can be streamlined to make working with it easier.
 -type owner_weight_list() :: [owner_weight()].
 
 -type tree_status() :: stale | up_to_date.
@@ -194,96 +199,6 @@ make_float_map(OldFloatMap, NewOwnerWeights) ->
                         end,
                         NewOwnerWeights),
     make_float_map2(OldFloatMap2, DiffMap, NewOwnerWeights).
-
-make_float_map2(OldFloatMap, DiffMap,
-                _NewOwnerWeights) ->
-    FloatMap = apply_diffmap(DiffMap, OldFloatMap),
-    XX =
-        combine_neighbors(collapse_unused_in_float_map(FloatMap)),
-    XX.
-
-apply_diffmap(DiffMap, FloatMap) ->
-    SubtractDiff = [{Ch, abs(Diff)}
-                    || {Ch, Diff} <- DiffMap, Diff < 0],
-    AddDiff = [D || {_Ch, Diff} = D <- DiffMap, Diff > 0],
-    TmpFloatMap = iter_diffmap_subtract(SubtractDiff,
-                                        FloatMap),
-    iter_diffmap_add(AddDiff, TmpFloatMap).
-
-add_all_weights(OwnerWeights) ->
-    lists:foldl(fun ({_Ch, Weight}, Sum) -> Sum + Weight
-                end,
-                0.0, OwnerWeights).
-
-iter_diffmap_subtract([{Ch, Diff} | T], FloatMap) ->
-    iter_diffmap_subtract(T,
-                          apply_diffmap_subtract(Ch, Diff, FloatMap));
-iter_diffmap_subtract([], FloatMap) -> FloatMap.
-
-iter_diffmap_add([{Ch, Diff} | T], FloatMap) ->
-    iter_diffmap_add(T,
-                     apply_diffmap_add(Ch, Diff, FloatMap));
-iter_diffmap_add([], FloatMap) -> FloatMap.
-
-apply_diffmap_subtract(Ch, Diff, [{Ch, Wt} | T]) ->
-    if Wt == Diff -> [{unused, Wt} | T];
-       Wt > Diff -> [{Ch, Wt - Diff}, {unused, Diff} | T];
-       Wt < Diff ->
-           [{unused, Wt} | apply_diffmap_subtract(Ch, Diff - Wt,
-                                                  T)]
-    end;
-apply_diffmap_subtract(Ch, Diff, [H | T]) ->
-    [H | apply_diffmap_subtract(Ch, Diff, T)];
-apply_diffmap_subtract(_Ch, _Diff, []) -> [].
-
-apply_diffmap_add(Ch, Diff, [{unused, Wt} | T]) ->
-    if Wt == Diff -> [{Ch, Wt} | T];
-       Wt > Diff -> [{Ch, Diff}, {unused, Wt - Diff} | T];
-       Wt < Diff ->
-           [{Ch, Wt} | apply_diffmap_add(Ch, Diff - Wt, T)]
-    end;
-apply_diffmap_add(Ch, Diff, [H | T]) ->
-    [H | apply_diffmap_add(Ch, Diff, T)];
-apply_diffmap_add(_Ch, _Diff, []) -> [].
-
-combine_neighbors([{Ch, Wt1}, {Ch, Wt2} | T]) ->
-    combine_neighbors([{Ch, Wt1 + Wt2} | T]);
-combine_neighbors([H | T]) ->
-    [H | combine_neighbors(T)];
-combine_neighbors([]) -> [].
-
-collapse_unused_in_float_map([{Ch, Wt1}, {unused, Wt2}
-                              | T]) ->
-    collapse_unused_in_float_map([{Ch, Wt1 + Wt2} | T]);
-collapse_unused_in_float_map([{unused, _}] = L) ->
-    L;                                          % Degenerate case only
-collapse_unused_in_float_map([H | T]) ->
-    [H | collapse_unused_in_float_map(T)];
-collapse_unused_in_float_map([]) -> [].
-
-chash_float_map_to_nextfloat_list(FloatMap)
-    when length(FloatMap) > 0 ->
-    %% QuickCheck found a bug ... need to weed out stuff smaller than
-    %% ?SMALLEST_SIGNIFICANT_FLOAT_SIZE here.
-    FM1 = [P
-           || {_X, Y} = P <- FloatMap,
-              Y > (?SMALLEST_SIGNIFICANT_FLOAT_SIZE)],
-    {_Sum, NFs0} = lists:foldl(fun ({Name, Amount},
-                                    {Sum, List}) ->
-                                       {Sum + Amount,
-                                        [{Sum + Amount, Name} | List]}
-                               end,
-                               {0, []}, FM1),
-    lists:reverse(NFs0).
-
-chash_nextfloat_list_to_gb_tree([]) ->
-    gb_trees:balance(gb_trees:from_orddict([]));
-chash_nextfloat_list_to_gb_tree(NextFloatList) ->
-    {_FloatPos, Name} = lists:last(NextFloatList),
-    %% QuickCheck found a bug ... it really helps to add a catch-all item
-    %% at the far "right" of the list ... 42.0 is much greater than 1.0.
-    NFs = NextFloatList ++ [{42.0, Name}],
-    gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
 
 -spec chash_gb_next(float(), float_tree()) -> {float(),
                                                owner_name()}.
@@ -672,11 +587,163 @@ weights({_, _, Weights}) -> Weights.
 %% ====================================================================
 
 %% @private
+%% Chooses a random weight out of two.
 -spec random_weight(WeightA :: weight(),
                     WeightB :: weight()) -> weight().
 
 random_weight(WeightA, WeightB) ->
     lists:nth(rand:uniform(2), [WeightA, WeightB]).
+
+%% @private
+%% Assigns gaps to nodes and merges neighbouring sections with the same owner.
+-spec make_float_map2(OldFloatMap :: float_map(),
+                      DiffMap :: float_map(),
+                      NewOwnerWeights :: owner_weight_list()) -> float_map().
+
+make_float_map2(OldFloatMap, DiffMap,
+                _NewOwnerWeights) ->
+    FloatMap = apply_diffmap(DiffMap, OldFloatMap),
+    XX =
+        combine_neighbors(collapse_unused_in_float_map(FloatMap)),
+    XX.
+
+%% @private
+%%
+-spec apply_diffmap(DiffMap :: float_map(),
+                    FloatMap :: float_map()) -> float_map().
+
+apply_diffmap(DiffMap, FloatMap) ->
+    SubtractDiff = [{Ch, abs(Diff)}
+                    || {Ch, Diff} <- DiffMap, Diff < 0],
+    AddDiff = [D || {_Ch, Diff} = D <- DiffMap, Diff > 0],
+    TmpFloatMap = iter_diffmap_subtract(SubtractDiff,
+                                        FloatMap),
+    iter_diffmap_add(AddDiff, TmpFloatMap).
+
+%% @private
+%% Sums the weights of all nodes.
+-spec add_all_weights(OwnerWeights ::
+                          owner_weight_list()) -> float().
+
+add_all_weights(OwnerWeights) ->
+    lists:foldl(fun ({_Ch, Weight}, Sum) -> Sum + Weight
+                end,
+                0.0, OwnerWeights).
+
+%% @private
+%% Takes sections or part of them away from each node such that they own the
+%% desired size.
+-spec iter_diffmap_subtract(DiffMap :: float_map(),
+                            FloatMap :: float_map()) -> float_map().
+
+iter_diffmap_subtract([{Ch, Diff} | T], FloatMap) ->
+    iter_diffmap_subtract(T,
+                          apply_diffmap_subtract(Ch, Diff, FloatMap));
+iter_diffmap_subtract([], FloatMap) -> FloatMap.
+
+%% @private
+%% Assigns sections or part of them to each node such that they own the desired
+%% size.
+-spec iter_diffmap_add(DiffMap :: float_map(),
+                       FloatMap :: float_map()) -> float_map().
+
+iter_diffmap_add([{Ch, Diff} | T], FloatMap) ->
+    iter_diffmap_add(T,
+                     apply_diffmap_add(Ch, Diff, FloatMap));
+iter_diffmap_add([], FloatMap) -> FloatMap.
+
+%% @private
+%% Substracts the size difference from sections owned by the node until the
+%% desired size is reached.
+-spec apply_diffmap_subtract(node(), float(),
+                             float_map()) -> float_map().
+
+apply_diffmap_subtract(Ch, Diff, [{Ch, Wt} | T]) ->
+    if Wt == Diff -> [{unused, Wt} | T];
+       Wt > Diff -> [{Ch, Wt - Diff}, {unused, Diff} | T];
+       Wt < Diff ->
+           [{unused, Wt} | apply_diffmap_subtract(Ch, Diff - Wt,
+                                                  T)]
+    end;
+apply_diffmap_subtract(Ch, Diff, [H | T]) ->
+    [H | apply_diffmap_subtract(Ch, Diff, T)];
+apply_diffmap_subtract(_Ch, _Diff, []) -> [].
+
+%% @private
+%% Assigns unused sections or parts of it to the node until the desired size is
+%% reached.
+-spec apply_diffmap_add(node(), float(),
+                        float_map()) -> float_map().
+
+apply_diffmap_add(Ch, Diff, [{unused, Wt} | T]) ->
+    if Wt == Diff -> [{Ch, Wt} | T];
+       Wt > Diff -> [{Ch, Diff}, {unused, Wt - Diff} | T];
+       Wt < Diff ->
+           [{Ch, Wt} | apply_diffmap_add(Ch, Diff - Wt, T)]
+    end;
+apply_diffmap_add(Ch, Diff, [H | T]) ->
+    [H | apply_diffmap_add(Ch, Diff, T)];
+apply_diffmap_add(_Ch, _Diff, []) -> [].
+
+%% @private
+%% Mergers all neighboring sections with the same owner.
+-spec combine_neighbors(float_map()) -> float_map().
+
+combine_neighbors([{Ch, Wt1}, {Ch, Wt2} | T]) ->
+    combine_neighbors([{Ch, Wt1 + Wt2} | T]);
+combine_neighbors([H | T]) ->
+    [H | combine_neighbors(T)];
+combine_neighbors([]) -> [].
+
+%% @private
+%% Asigns neighboring unused sections to the successor owner.
+-spec collapse_unused_in_float_map(FloatMap ::
+                                       float_map()) -> float_map().
+
+collapse_unused_in_float_map([{Ch, Wt1}, {unused, Wt2}
+                              | T]) ->
+    collapse_unused_in_float_map([{Ch, Wt1 + Wt2} | T]);
+collapse_unused_in_float_map([{unused, _}] = L) ->
+    L;                                          % Degenerate case only
+collapse_unused_in_float_map([H | T]) ->
+    [H | collapse_unused_in_float_map(T)];
+collapse_unused_in_float_map([]) -> [].
+
+%% @private
+%% Converts a float map to a nextfloat list.
+%% A nextfloat list contains pairs of index and owner, where the index is the
+%% end of the section owned by the owner.
+-spec chash_float_map_to_nextfloat_list(FloatMap ::
+                                            float_map()) -> nextfloat_list().
+
+chash_float_map_to_nextfloat_list(FloatMap)
+    when length(FloatMap) > 0 ->
+    %% QuickCheck found a bug ... need to weed out stuff smaller than
+    %% ?SMALLEST_SIGNIFICANT_FLOAT_SIZE here.
+    FM1 = [P
+           || {_X, Y} = P <- FloatMap,
+              Y > (?SMALLEST_SIGNIFICANT_FLOAT_SIZE)],
+    {_Sum, NFs0} = lists:foldl(fun ({Name, Amount},
+                                    {Sum, List}) ->
+                                       {Sum + Amount,
+                                        [{Sum + Amount, Name} | List]}
+                               end,
+                               {0, []}, FM1),
+    lists:reverse(NFs0).
+
+%% @private
+%% Creates a search tree from a nextfloat list.
+-spec
+     chash_nextfloat_list_to_gb_tree(nextfloat_list()) -> gb_trees:tree().
+
+chash_nextfloat_list_to_gb_tree([]) ->
+    gb_trees:balance(gb_trees:from_orddict([]));
+chash_nextfloat_list_to_gb_tree(NextFloatList) ->
+    {_FloatPos, Name} = lists:last(NextFloatList),
+    %% QuickCheck found a bug ... it really helps to add a catch-all item
+    %% at the far "right" of the list ... 42.0 is much greater than 1.0.
+    NFs = NextFloatList ++ [{42.0, Name}],
+    gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
 
 %% ===================================================================
 %% EUnit tests
