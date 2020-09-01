@@ -39,21 +39,6 @@
 
 -export([num_perms/2, num_combs/2, fac/1, perm_gen/1,
          down_combos/2, rotations/1, substitutions/2]).
-<<<<<<< HEAD
-
--ifdef(TEST).
-
--ifdef(EQC).
-
--include_lib("eqc/include/eqc.hrl").
-
--endif.
-
--include_lib("eunit/include/eunit.hrl").
-
--endif.
-=======
->>>>>>> master
 
 -record(load,
         {node,    % Node name

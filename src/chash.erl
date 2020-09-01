@@ -58,7 +58,8 @@
 
 -define(SHA_MAX, 1 bsl 20 * 8).
 
--define(REPLICAION, application:getenv(riak_core, replication, random)).
+-define(REPLICAION,
+        application:getenv(riak_core, replication, random)).
 
 -ifdef(TEST).
 
@@ -664,8 +665,7 @@ update(_IndexAsInt, _Name, _CHash) ->
 %% @doc Retrieves the current weight list of the chash.
 -spec weights(CHash :: chash()) -> [weight()].
 
-weights({_, _, Weights}) ->
-    Weights.
+weights({_, _, Weights}) -> Weights.
 
 %% ====================================================================
 %% Internal functions
@@ -711,33 +711,27 @@ contains_test() ->
 
 simple_size_test() ->
     ?assertEqual(8,
-                 (length(chash:nodes(chash:fresh(8,
-                                                                   the_node))))).
+                 (length(chash:nodes(chash:fresh(8, the_node))))).
 
 successors_length_test() ->
     ?assertEqual(8,
                  (length(chash:successors(chash:key_of(0),
-                                                   chash:fresh(8,
-                                                                        the_node))))).
+                                          chash:fresh(8, the_node))))).
 
 inverse_pred_test() ->
     CHash = chash:fresh(8, the_node),
     S = [I
-         || {I, _}
-                <- chash:successors(chash:key_of(4),
-                                             CHash)],
+         || {I, _} <- chash:successors(chash:key_of(4), CHash)],
     P = [I
          || {I, _}
-                <- chash:predecessors(chash:key_of(4),
-                                               CHash)],
+                <- chash:predecessors(chash:key_of(4), CHash)],
     ?assertEqual(S, (lists:reverse(P))).
 
 merge_test() ->
     CHashA = chash:fresh(8, node_one),
     CHashB = chash:update(0, node_one,
-                                   chash:fresh(8, node_two)),
+                          chash:fresh(8, node_two)),
     CHash = chash:merge_rings(CHashA, CHashB),
-    ?assertEqual(node_one,
-                 (chash:lookup(0, CHash))).
+    ?assertEqual(node_one, (chash:lookup(0, CHash))).
 
 -endif.

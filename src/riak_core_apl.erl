@@ -159,6 +159,9 @@ get_apl_ann_with_pnum(BKey) ->
 -spec get_apl_ann_chbin(binary(), n_val(), chashbin(),
                         [node()]) -> preflist_ann().
 
+%% WARN does not work with random slicing.
+%% Is not used within other modules of Riak Core Lite.
+%% Can it be deleted without taking away too much functionality?
 get_apl_ann_chbin(DocIdx, N, CHBin, UpNodes) ->
     UpNodes1 = UpNodes,
     Itr = chashbin:iterator(DocIdx, CHBin),
@@ -171,14 +174,17 @@ get_apl_ann_chbin(DocIdx, N, CHBin, UpNodes) ->
                       atom()) -> preflist_ann().
 
 get_primary_apl(DocIdx, N, Service) ->
-    {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
-    get_primary_apl_chbin(DocIdx, N, CHBin,
-                          riak_core_node_watcher:nodes(Service)).
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    get_primary_apl(DocIdx, N, Ring,
+                    riak_core_node_watcher:nodes(Service)).
 
 %% @doc Same as get_apl, but returns only the primaries.
 -spec get_primary_apl_chbin(binary(), n_val(),
                             chashbin(), [node()]) -> preflist_ann().
 
+%% WARN does not work with random slicing.
+%% Is not used within other modules of Riak Core Lite.
+%% Can it be deleted without taking away too much functionality?
 get_primary_apl_chbin(DocIdx, N, CHBin, UpNodes) ->
     UpNodes1 = UpNodes,
     Itr = chashbin:iterator(DocIdx, CHBin),
@@ -199,20 +205,33 @@ get_primary_apl(DocIdx, N, Ring, UpNodes) ->
 
 %% @doc Return the first entry that is up in the preflist for `DocIdx'. This
 %%      will crash if all owning nodes are offline.
+-spec first_up(DocIdx :: binary(),
+               Service :: atom()) -> node().
+
+%% TODO Not using the iterator it is now possible to return error instead of
+%% crashing.
 first_up(DocIdx, Service) ->
-    {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
-    Itr = chashbin:iterator(DocIdx, CHBin),
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    Preflist = riak_core_ring:preflist(DocIdx, Ring),
     UpSet =
         ordsets:from_list(riak_core_node_watcher:nodes(Service)),
-    Itr2 = chashbin:itr_next_while(fun ({_P, Node}) ->
-                                           not ordsets:is_element(Node, UpSet)
-                                   end,
-                                   Itr),
-    chashbin:itr_value(Itr2).
+    lists:nth(1,
+              lists:filter(fun (Node) ->
+                                   ordsets:is_element(Node, UpSet)
+                           end,
+                           Preflist)).
+
+%% @doc Returns list of all owners that are curently not up.
+-spec offline_owners(Service :: atom()) -> [{index(),
+                                             node()}].
 
 offline_owners(Service) ->
     {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
     offline_owners(Service, CHBin).
+
+%% @doc Returns list of all owners that are curently not up.
+-spec offline_owners(atom() | [node()],
+                     CHBin :: chashbin()) -> [{index(), node()}].
 
 offline_owners(Service, CHBin) when is_atom(Service) ->
     UpSet =
@@ -265,6 +284,9 @@ find_fallbacks([{Partition, _Node} | Rest] = Pangs,
 -spec find_fallbacks_chbin(preflist(), iterator(),
                            [node()], preflist_ann()) -> preflist_ann().
 
+%% WARN does not work with random slicing.
+%% Is not used within other modules of Riak Core Lite.
+%% Can it be deleted without taking away too much functionality?
 find_fallbacks_chbin([], _Fallbacks, _UpNodes,
                      Secondaries) ->
     lists:reverse(Secondaries);
@@ -290,6 +312,8 @@ is_up(Node, UpNodes) -> lists:member(Node, UpNodes).
 -spec apl_with_partition_nums(preflist_ann(),
                               riak_core_ring:ring_size()) -> preflist_with_pnum_ann().
 
+%% WARN not sure if this still works with random slicing. Need to look into
+%% riak_core_ring_util.
 apl_with_partition_nums(Apl, Size) ->
     [{{riak_core_ring_util:hash_to_partition_id(Hash, Size),
        Node},
