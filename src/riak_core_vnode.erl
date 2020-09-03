@@ -35,6 +35,16 @@
          set_forwarding/2, trigger_handoff/2, trigger_handoff/3,
          trigger_delete/1, core_status/1, handoff_error/3]).
 
+-export([cast_finish_handoff/1,
+         send_an_event/2,
+         send_req/2,
+         send_all_proxy_req/2,
+         cancel_handoff/1,
+         handoff_complete/1,
+         resize_transfer_complete/2,
+         handoff_data/3,
+         unregistered/1]).
+
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -351,6 +361,49 @@ trigger_delete(VNode) ->
 core_status(VNode) ->
     gen_fsm_compat:sync_send_all_state_event(VNode,
                                              core_status).
+
+%%%%%%% %new APIs
+%% # - riak_core_vnode_manager - handle_vnode_event
+cast_finish_handoff(VNode) ->
+    gen_fsm_compat:send_all_state_event(VNode, finish_handoff).
+
+%% # - riak_core_vnode_manager - handle_vnode_event
+cancel_handoff(VNode) ->
+    gen_fsm_compat:send_all_state_event(VNode, cancel_handoff).
+
+%% # - riak_core_vnode_master - command2
+%send_req
+
+%% # - riak_core_vnode_master - send_an_event
+send_an_event(VNode, Event)->
+    gen_fsm_compat:send_event(VNode, Event).
+
+%% # - riak_core_vnode_master - handle_cast/handle_call
+send_req(VNode, Req)->
+    gen_fsm_compat:send_event(VNode, Req).
+
+%% # - riak_core_vnode_master - handle_call
+send_all_proxy_req(VNode, Req)->
+    gen_fsm_compat:send_all_state_event(VNode, Req).
+
+%% # - riak:core_handoff_sender - start_fold_
+handoff_complete(VNode) ->
+    gen_fsm_compat:send_event(VNode, handoff_complete).
+
+%% # - riak:core_handoff_sender - start_fold_
+resize_transfer_complete(VNode, NotSentAcc) ->
+    gen_fsm_compat:send_event(VNode, {resize_transfer_complete, NotSentAcc}).
+
+%% # - riak_core_handoff_receiver - process_message
+handoff_data(VNode, MsgData, VNodeTimeout) ->
+    gen_fsm_compat:sync_send_all_state_event(VNode, {handoff_data, MsgData}, VNodeTimeout).
+
+%% # - riak_core_vnode_proxy - handle_cast
+unregistered(VNode) ->
+    gen_fsm_compat:send_event(VNode, unregistered).
+
+%% # - riak_core_vnode_proxy - handle_call
+%send_vnode_req
 
 continue(State) ->
     {next_state, active, State,

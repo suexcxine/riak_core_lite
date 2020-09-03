@@ -92,9 +92,9 @@ command2([], _Msg, _Sender, _VMaster, _How) -> ok;
 command2([{Index, Pid} | Rest], Msg, Sender, VMaster,
          How = normal)
     when is_pid(Pid) ->
-    gen_fsm_compat:send_event(Pid,
-                              make_request(Msg, Sender, Index)),
-    command2(Rest, Msg, Sender, VMaster, How);
+        Request= make_request(Msg, Sender, Index),
+        riak_core_vnode:send_req(Pid, Request),
+        command2(Rest, Msg, Sender, VMaster, How);
 command2([{Index, Pid} | Rest], Msg, Sender, VMaster,
          How = unreliable)
     when is_pid(Pid) ->
@@ -221,7 +221,7 @@ do_proxy_cast({VMaster, Node},
     ok.
 
 send_an_event(Dest, Event, normal) ->
-    gen_fsm_compat:send_event(Dest, Event);
+    riak_core_vnode:send_an_event(Dest, Event);
 send_an_event(Dest, Event, unreliable) ->
     riak_core_send_msg:send_event_unreliable(Dest, Event).
 
@@ -236,12 +236,12 @@ handle_cast({wait_for_service, Service}, State) ->
 handle_cast(Req = #riak_vnode_req_v1{index = Idx},
             State = #state{vnode_mod = Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
-    gen_fsm_compat:send_event(Proxy, Req),
+    riak_core_vnode:send_req(Proxy, Req),
     {noreply, State};
 handle_cast(Req = #riak_coverage_req_v1{index = Idx},
             State = #state{vnode_mod = Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
-    gen_fsm_compat:send_event(Proxy, Req),
+    riak_core_vnode:send_req(Proxy, Req),
     {noreply, State};
 handle_cast(Other, State = #state{legacy = Legacy})
     when Legacy =/= undefined ->
@@ -263,7 +263,7 @@ handle_call(Req = #riak_vnode_req_v1{index = Idx,
                                      sender = {server, undefined, undefined}},
             From, State = #state{vnode_mod = Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
-    gen_fsm_compat:send_event(Proxy,
+    riak_core_vnode:send_req(Proxy,
                               Req#riak_vnode_req_v1{sender =
                                                         {server, undefined,
                                                          From}}),
@@ -275,10 +275,9 @@ handle_call({spawn,
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     Sender = {server, undefined, From},
     spawn_link(fun () ->
-                       gen_fsm_compat:send_all_state_event(Proxy,
-                                                           Req#riak_vnode_req_v1{sender
-                                                                                     =
-                                                                                     Sender})
+                        riak_core_vnode:send_all_proxy_req(Proxy, Req#riak_vnode_req_v1{sender
+                                                                                    =
+                                                                                    Sender})
                end),
     {noreply, State};
 handle_call(Other, From,
