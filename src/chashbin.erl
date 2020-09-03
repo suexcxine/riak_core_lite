@@ -78,12 +78,12 @@
 -spec create(chash:chash()) -> chashbin().
 
 create(CHash) ->
-    Nodes2 = chash:members(CHash),
-    Nodes3 = lists:zip(Nodes2,
-                       lists:seq(1, length(Nodes2))),
-    OBin = owner_bin(chash:nodes(CHash), Nodes3, <<>>),
+    Members = chash:members(CHash),
+    Nodes = lists:zip(Members,
+                       lists:seq(1, length(Members))),
+    OBin = owner_bin(chash:nodes(CHash), Nodes, <<>>),
     #chashbin{size = chash:size(CHash), owners = OBin,
-              nodes = list_to_tuple(Nodes2)}.
+              nodes = list_to_tuple(Members)}.
 
 %% @doc Convert a `chashbin' back to a `chash'
 -spec to_chash(chashbin()) -> chash:chash().
@@ -268,7 +268,7 @@ itr_next_while(Pred, Itr) ->
                 [{node(), pos_integer()}], binary()) -> owners_bin().
 
 owner_bin([], _, Bin) -> Bin;
-owner_bin([{Owner, Idx} | Owners], Nodes, Bin) ->
+owner_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
     {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
     Bin2 = <<Bin/binary,
              (chash:index_to_int(Idx)):160/integer, Id:16/integer>>,

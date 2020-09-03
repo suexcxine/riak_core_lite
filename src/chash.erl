@@ -58,9 +58,6 @@
 
 -define(SHA_MAX, 1 bsl 20 * 8).
 
--define(REPLICAION,
-        application:getenv(riak_core, replication, random)).
-
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -76,10 +73,10 @@
 
 %% chash API
 -export([contains_name/2, fresh/2, index_to_int/1,
-         int_to_index/1, lookup/2, key_of/1, members/1,
+         int_to_index/1, lookup/2, lookup_node_entry/2, key_of/1, members/1,
          merge_rings/2, next_index/2, nodes/1, node_size/2,
          offsets/1, predecessors/2, predecessors/3,
-         preference_list/2, ring_increment/1, size/1,
+         ring_increment/1, size/1,
          successors/2, successors/3, update/3, weights/1]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
@@ -101,10 +98,9 @@
 %% A nextfloat_list differs from a float_map in two respects: 1) nextfloat_list
 %% contains tuples with the node name in 2nd position, 2) the float() at each
 %% position I_n > I_m, for all n, m such that n > m.
-%% For example, a nextfloat_list of the float_map example above,
-%% [{0.25, {br1, nd1}}, {0.75, {br2, nd1}}, {1.0, {br3, nd1}].
-%% WARN The description and example does not fit the implementation of
-%% chash_float_map_to_nextfloat_list/1 (I think).
+%% For example, a nextfloat_list of the float_map example
+%% [{node1, 0.25}, {node2, 0.5}, {node3, 0.25}] is
+%% [{0.25, node1}, {0.75, node2}, {1.0, node3}].
 -type nextfloat_list() :: [{index(), owner_name()}].
 
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
@@ -141,8 +137,6 @@
 -type node_entry() :: {index(), owner_name()}.
 
 -type chash_node() :: owner_name().
-
--type preference_list() :: [chash_node()].
 
 %% TODO Is it necessary to export those?
 -export_type([float_map/0, float_tree/0]).
@@ -276,8 +270,7 @@ make_tree(Map) ->
 
 %% @doc Low-level function for querying a float tree: the (floating
 %% point) point within the unit interval.
--spec query_tree(float(), float_tree()) -> {float(),
-                                            owner_name()}.
+-spec query_tree(float(), float_tree()) -> {node_entry()}.
 
 query_tree(Val, Tree)
     when is_float(Val), 0.0 =< Val, Val =< 1.0 ->
@@ -371,13 +364,20 @@ int_to_index(Int) -> Int / (?SHA_MAX).
 -spec lookup(Index :: index() | index_as_int(),
              CHash :: chash()) -> chash_node().
 
-lookup(Index, CHash) when is_integer(Index) ->
-    lookup(int_to_index(Index), CHash);
-lookup(Index, {NextList, stale}) ->
+lookup(Index, CHash) ->
+    {_, Node} = lookup_node_entry(Index, CHash),
+    Node.
+
+-spec lookup_node_entry(Index :: index() | index_as_int(),
+             CHash :: chash()) -> node_entry().
+
+lookup_node_entry(Index, CHash) when is_integer(Index) ->
+    lookup_node_entry(int_to_index(Index), CHash);
+lookup_node_entry(Index, {NextList, stale}) ->
     %% optimization: also return new chash() with updated tree
-    lookup(Index,
+    lookup_node_entry(Index,
            {NextList, chash_nextfloat_list_to_gb_tree(NextList)});
-lookup(Index, {_, FloatTree}) ->
+lookup_node_entry(Index, FloatTree) ->
     query_tree(Index, FloatTree).
 
 %% @doc Given any term used to name an object, produce that object's key
@@ -484,14 +484,6 @@ predecessors(_Index, _CHash, _N) ->
     %% - find repair pairs in riak_core_vnode_manager
     [].
 
-%% @doc Given an object key, return at least N NodeEntries in the order of
-%% preferred replica placement.
--spec preference_list(Index :: index(),
-                      CHash :: chash()) -> preference_list().
-
-preference_list(Index, CHash) ->
-    replication:replicate(?REPLICAION, Index, CHash).
-
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
 -spec ring_increment(NumPartitions ::
@@ -558,11 +550,11 @@ weights({_, _, Weights}) -> Weights.
 
 %% @private
 %% Chooses a random weight out of two.
--spec random_weight(WeightA :: weight(),
-                    WeightB :: weight()) -> weight().
+% -spec random_weight(WeightA :: weight(),
+%                     WeightB :: weight()) -> weight().
 
-random_weight(WeightA, WeightB) ->
-    lists:nth(rand:uniform(2), [WeightA, WeightB]).
+% random_weight(WeightA, WeightB) ->
+%     lists:nth(rand:uniform(2), [WeightA, WeightB]).
 
 %% @private
 %% Assigns gaps to nodes and merges neighbouring sections with the same owner.
@@ -703,16 +695,16 @@ chash_float_map_to_nextfloat_list(FloatMap)
 
 %% @private
 %% Converts a nextfloat list to a float map.
--spec nextfloat_list_to_float_map(NextFloatList ::
-                                      nextfloat_list()) -> float_map().
+% -spec nextfloat_list_to_float_map(NextFloatList ::
+%                                       nextfloat_list()) -> float_map().
 
-nextfloat_list_to_float_map(NextFloatList) ->
-    {_, L} = lists:foldl(fun ({Index, Name},
-                              {Start, List}) ->
-                                 {Index, [{Name, Index - Start} | List]}
-                         end,
-                         {0.0, []}, NextFloatList),
-    L.
+% nextfloat_list_to_float_map(NextFloatList) ->
+%     {_, L} = lists:foldl(fun ({Index, Name},
+%                               {Start, List}) ->
+%                                  {Index, [{Name, Index - Start} | List]}
+%                          end,
+%                          {0.0, []}, NextFloatList),
+%     L.
 
 %% @private
 %% Creates a search tree from a nextfloat list.
@@ -730,8 +722,7 @@ chash_nextfloat_list_to_gb_tree(NextFloatList) ->
 
 %% @private
 %% Queries the tree with the key.
--spec chash_gb_next(float(), float_tree()) -> {float(),
-                                               owner_name()}.
+-spec chash_gb_next(float(), float_tree()) -> {node_entry()}.
 
 chash_gb_next(X, {_, GbTree}) ->
     chash_gb_next1(X, GbTree).

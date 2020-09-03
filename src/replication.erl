@@ -8,7 +8,12 @@
 
 -endif.
 
--export([replicate/3]).
+-export([replicate/2]).
+
+-spec replicate(Key :: chash:index(), CHash :: chash:chash()) -> [chash:node_entry()].
+
+replicate(Key, CHash) ->
+    replicate(application:getenv(riak_core, replication, random), Key, CHash).
 
 %% @doc Constructs the preference list according to the given algorithm:
 %% -random: draw random bins until enough are drawn
@@ -19,7 +24,7 @@
 -spec replicate(Method :: random | rotation |
                           incremental,
                 Key :: chash:index(),
-                CHash :: chash:chash()) -> chash:preflist().
+                CHash :: chash:chash()) -> [chash:node_entry()].
 
 replicate(random, Key, CHash) -> random(Key, CHash);
 replicate(rotation, Key, CHash) -> rotation(Key, CHash);
@@ -33,13 +38,13 @@ random(Key, CHash) ->
               chash:index_to_int(Key)), % Not sure if this will actually work.
     lists:reverse(random(CHash,
                          length(chash:members(CHash)),
-                         [chash:lookup(Key, CHash)])).
+                         [chash:lookup_node_entry(Key, CHash)])).
 
 random(CHash, N, PrefList) ->
     case length(PrefList) >= N of
       true -> PrefList;
       false ->
-          Node = chash:lookup(rand:uniform(), CHash),
+          Node = chash:lookup_node_entry(rand:uniform(), CHash),
           NPref = case lists:member(Node, PrefList) of
                     true -> PrefList;
                     false -> [Node | PrefList]
@@ -50,7 +55,7 @@ random(CHash, N, PrefList) ->
 rotation(Key, CHash) ->
     lists:reverse(rotation(Key, CHash,
                            length(chash:members(CHash)), chash:offsets(CHash),
-                           [], [chash:lookup(Key, CHash)], 0)).
+                           [], [chash:lookup_node_entry(Key, CHash)], 0)).
 
 rotation(Key, CHash, N, [], NextOffsets, PrefList, I) ->
     rotation(Key, CHash, N, lists:reverse(NextOffsets), [],
@@ -80,7 +85,7 @@ rotate(Key, CHash, Offset, PrefList, I) ->
 
 incremental(Key, CHash) ->
     incremental(Key, CHash, length(chash:members(CHash)),
-                [chash:lookup(Key, CHash)]).
+                [chash:lookup_node_entry(Key, CHash)]).
 
 incremental(Key, CHash, N, PrefList) ->
     case length(PrefList) >= N of
@@ -106,7 +111,7 @@ increment(Key, Offset) ->
 
 step(Key, CHash, Offset, PrefList) ->
     NKey = increment(Key, Offset),
-    Node = chash:lookup(NKey, CHash),
+    Node = chash:lookup_node_entry(NKey, CHash),
     NPref = case lists:member(Node, PrefList) of
               true -> PrefList;
               false -> [Node | PrefList]
@@ -152,7 +157,8 @@ is_unique(Mode) ->
     Key = 0.345,
     CHash = test_chash(),
     PrefList = replicate(Mode, Key, CHash),
-    length(PrefList) == sets:size(sets:from_list(PrefList)).
+    PrefNodes = [N || {I, N} <= PrefList],
+    length(PrefList) == sets:size(sets:from_list(PrefNodes)).
 
 determinism_random_test() ->
     ?assert((is_deterministic(random))).

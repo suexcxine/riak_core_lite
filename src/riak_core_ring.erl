@@ -375,7 +375,7 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    chash:preference_list(Key, State#chstate.chring).
+    replication:replicate(Key, State#chstate.chring).
 
 %% @doc Return a randomly-chosen node from amongst the owners.
 -spec random_node(State :: chstate()) -> Node :: term().
