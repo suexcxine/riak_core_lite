@@ -590,13 +590,14 @@ is_future_index(CHashKey, OrigIdx, TargetIdx, State) ->
                     MyState :: chstate()) -> chstate().
 
 transfer_node(Idx, Node, MyState) ->
-    case chash:lookup(Idx, MyState#chstate.chring) of
-      Node -> MyState;
+    {N, CHash} = chash:lookup(Idx, MyState#chstate.chring),
+    case N of
+      Node -> MyState#chstate{chring = CHash};
       _ ->
           Me = MyState#chstate.nodename,
           VClock = vclock:increment(Me, MyState#chstate.vclock),
           CHRing = chash:update(Idx, Node,
-                                MyState#chstate.chring),
+                                CHash),
           MyState#chstate{vclock = VClock, chring = CHRing}
     end.
 

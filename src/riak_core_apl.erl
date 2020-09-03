@@ -58,8 +58,6 @@
                                     node()},
                                    primary | fallback}].
 
--type iterator() :: term().
-
 -type chashbin() :: term().
 
 -type docidx() :: chash:index().
@@ -156,18 +154,15 @@ get_apl_ann_with_pnum(BKey) ->
 %% @doc Get the active preflist taking account of which nodes are up
 %%      for a given chash/upnodes list and annotate each node with type of
 %%      primary/fallback.
+%%      Does not work directly with the chashbin and is therefor slow.
+%%      The implementation uses get_apl_ann. THis function is only left to
+%%      assure API compatibility.
 -spec get_apl_ann_chbin(binary(), n_val(), chashbin(),
                         [node()]) -> preflist_ann().
 
-%% WARN does not work with random slicing.
-%% Is not used within other modules of Riak Core Lite.
-%% Can it be deleted without taking away too much functionality?
-get_apl_ann_chbin(DocIdx, N, CHBin, UpNodes) ->
-    UpNodes1 = UpNodes,
-    Itr = chashbin:iterator(DocIdx, CHBin),
-    {Primaries, Itr2} = chashbin:itr_pop(N, Itr),
-    {Up, Pangs} = check_up(Primaries, UpNodes1, [], []),
-    Up ++ find_fallbacks_chbin(Pangs, Itr2, UpNodes1, []).
+get_apl_ann_chbin(DocIdx, N, _CHBin, UpNodes) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    get_apl_ann(DocIdx, N, Ring, UpNodes).
 
 %% @doc Same as get_apl, but returns only the primaries.
 -spec get_primary_apl(binary(), n_val(),
@@ -179,18 +174,15 @@ get_primary_apl(DocIdx, N, Service) ->
                     riak_core_node_watcher:nodes(Service)).
 
 %% @doc Same as get_apl, but returns only the primaries.
+%%      Does not work directly with the chashbin and is therefor slow.
+%%      The implementation uses get_primary_apl. THis function is only left to
+%%      assure API compatibility.
 -spec get_primary_apl_chbin(binary(), n_val(),
                             chashbin(), [node()]) -> preflist_ann().
 
-%% WARN does not work with random slicing.
-%% Is not used within other modules of Riak Core Lite.
-%% Can it be deleted without taking away too much functionality?
-get_primary_apl_chbin(DocIdx, N, CHBin, UpNodes) ->
-    UpNodes1 = UpNodes,
-    Itr = chashbin:iterator(DocIdx, CHBin),
-    {Primaries, _} = chashbin:itr_pop(N, Itr),
-    {Up, _} = check_up(Primaries, UpNodes1, [], []),
-    Up.
+get_primary_apl_chbin(DocIdx, N, _CHBin, UpNodes) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    get_primary_apl(DocIdx, N, Ring, UpNodes).
 
 %% @doc Same as get_apl, but returns only the primaries.
 -spec get_primary_apl(binary(), n_val(), ring(),
@@ -278,31 +270,6 @@ find_fallbacks([{Partition, _Node} | Rest] = Pangs,
                          [{{Partition, FN}, fallback} | Secondaries]);
       false ->
           find_fallbacks(Pangs, Fallbacks, UpNodes, Secondaries)
-    end.
-
-%% @doc Find fallbacks for downed nodes in the preference list.
--spec find_fallbacks_chbin(preflist(), iterator(),
-                           [node()], preflist_ann()) -> preflist_ann().
-
-%% WARN does not work with random slicing.
-%% Is not used within other modules of Riak Core Lite.
-%% Can it be deleted without taking away too much functionality?
-find_fallbacks_chbin([], _Fallbacks, _UpNodes,
-                     Secondaries) ->
-    lists:reverse(Secondaries);
-find_fallbacks_chbin(_, done, _UpNodes, Secondaries) ->
-    lists:reverse(Secondaries);
-find_fallbacks_chbin([{Partition, _Node} | Rest] =
-                         Pangs,
-                     Itr, UpNodes, Secondaries) ->
-    {_, FN} = chashbin:itr_value(Itr),
-    Itr2 = chashbin:itr_next(Itr),
-    case is_up(FN, UpNodes) of
-      true ->
-          find_fallbacks_chbin(Rest, Itr2, UpNodes,
-                               [{{Partition, FN}, fallback} | Secondaries]);
-      false ->
-          find_fallbacks_chbin(Pangs, Itr2, UpNodes, Secondaries)
     end.
 
 %% @doc Return true if a node is up.

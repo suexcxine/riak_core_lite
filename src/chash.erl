@@ -74,8 +74,8 @@
 %% chash API
 -export([contains_name/2, fresh/2, index_to_int/1,
          int_to_index/1, lookup/2, lookup_node_entry/2, key_of/1,
-         members/1, merge_rings/2, next_index/2, nodes/1,
-         node_size/2, offsets/1, predecessors/2, predecessors/3,
+         members/1, next_index/2, nodes/1, node_size/2,
+         offsets/1, predecessors/2, predecessors/3,
          ring_increment/1, size/1, successors/2, successors/3,
          update/3, weights/1]).
 
@@ -362,25 +362,28 @@ index_to_int(Index) ->
 int_to_index(Int) -> Int / (?SHA_MAX).
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
+%% Returns the chash structure to make use of the lookup structure.
 -spec lookup(Index :: index() | index_as_int(),
-             CHash :: chash()) -> chash_node().
+             CHash :: chash()) -> {chash_node(), chash()}.
 
 lookup(Index, CHash) ->
-    {_, Node} = lookup_node_entry(Index, CHash), Node.
+    {{_, Node}, CHash2} = lookup_node_entry(Index, CHash),
+    {Node, CHash2}.
 
+%% @doc Find the Node Entry that owns the partition identified by IndexAsInt.
+%% Returns the chash structure to make use of the lookup structure.
 -spec lookup_node_entry(Index :: index() |
                                  index_as_int(),
-                        CHash :: chash()) -> node_entry().
+                        CHash :: chash()) -> {node_entry(), chash()}.
 
 lookup_node_entry(Index, CHash)
     when is_integer(Index) ->
     lookup_node_entry(int_to_index(Index), CHash);
 lookup_node_entry(Index, {NextList, stale}) ->
-    %% optimization: also return new chash() with updated tree
     lookup_node_entry(Index,
                       {NextList, chash_nextfloat_list_to_gb_tree(NextList)});
-lookup_node_entry(Index, FloatTree) ->
-    query_tree(Index, FloatTree).
+lookup_node_entry(Index, {_, FloatTree} = CHash) ->
+    {query_tree(Index, FloatTree), CHash}.
 
 %% @doc Given any term used to name an object, produce that object's key
 %%      into the ring.  Two names with the same SHA-1 hash value are
@@ -397,16 +400,6 @@ key_of(ObjectName) ->
 
 members({NextList, _}) ->
     lists:usort([Name || {_, Name} <- NextList]).
-
-%% @doc Return a randomized merge of two rings.
-%%      If multiple nodes are actively claiming nodes in the same
-%%      time period, churn will occur.  Be prepared to live with it.
-%% TODO this is not used in any other module and does not make any sense in the
-%% API.
--spec merge_rings(CHashA :: chash(),
-                  CHashB :: chash()) -> chash().
-
-merge_rings(CHashA, _CHashB) -> CHashA.
 
 %% @doc Given the integer representation of a chash key,
 %%      return the next ring index integer value.
@@ -794,12 +787,5 @@ inverse_pred_test() ->
          || {I, _}
                 <- chash:predecessors(chash:key_of(4), CHash)],
     ?assertEqual(S, (lists:reverse(P))).
-
-merge_test() ->
-    CHashA = chash:fresh(8, node_one),
-    CHashB = chash:update(0, node_one,
-                          chash:fresh(8, node_two)),
-    CHash = chash:merge_rings(CHashA, CHashB),
-    ?assertEqual(node_one, (chash:lookup(0, CHash))).
 
 -endif.

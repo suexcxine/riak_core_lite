@@ -229,7 +229,8 @@ indices(CState, Node) ->
     [Idx || {Idx, Owner} <- AllOwners, Owner =:= Node].
 
 owner(?CHSTATE{chring=Ring}, Idx) ->
-    chash:lookup(Idx, Ring).
+    {{_, Owner}, _} = chash:lookup(Idx, Ring),
+    Owner.
 
 owner_node(CState) ->
     CState?CHSTATE.nodename.
