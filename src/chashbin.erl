@@ -80,7 +80,7 @@
 create(CHash) ->
     Members = chash:members(CHash),
     Nodes = lists:zip(Members,
-                       lists:seq(1, length(Members))),
+                      lists:seq(1, length(Members))),
     OBin = owner_bin(chash:nodes(CHash), Nodes, <<>>),
     #chashbin{size = chash:size(CHash), owners = OBin,
               nodes = list_to_tuple(Members)}.

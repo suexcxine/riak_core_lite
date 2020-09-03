@@ -73,11 +73,11 @@
 
 %% chash API
 -export([contains_name/2, fresh/2, index_to_int/1,
-         int_to_index/1, lookup/2, lookup_node_entry/2, key_of/1, members/1,
-         merge_rings/2, next_index/2, nodes/1, node_size/2,
-         offsets/1, predecessors/2, predecessors/3,
-         ring_increment/1, size/1,
-         successors/2, successors/3, update/3, weights/1]).
+         int_to_index/1, lookup/2, lookup_node_entry/2, key_of/1,
+         members/1, merge_rings/2, next_index/2, nodes/1,
+         node_size/2, offsets/1, predecessors/2, predecessors/3,
+         ring_increment/1, size/1, successors/2, successors/3,
+         update/3, weights/1]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -270,7 +270,8 @@ make_tree(Map) ->
 
 %% @doc Low-level function for querying a float tree: the (floating
 %% point) point within the unit interval.
--spec query_tree(float(), float_tree()) -> {node_entry()}.
+-spec query_tree(float(),
+                 float_tree()) -> {node_entry()}.
 
 query_tree(Val, Tree)
     when is_float(Val), 0.0 =< Val, Val =< 1.0 ->
@@ -365,18 +366,19 @@ int_to_index(Int) -> Int / (?SHA_MAX).
              CHash :: chash()) -> chash_node().
 
 lookup(Index, CHash) ->
-    {_, Node} = lookup_node_entry(Index, CHash),
-    Node.
+    {_, Node} = lookup_node_entry(Index, CHash), Node.
 
--spec lookup_node_entry(Index :: index() | index_as_int(),
-             CHash :: chash()) -> node_entry().
+-spec lookup_node_entry(Index :: index() |
+                                 index_as_int(),
+                        CHash :: chash()) -> node_entry().
 
-lookup_node_entry(Index, CHash) when is_integer(Index) ->
+lookup_node_entry(Index, CHash)
+    when is_integer(Index) ->
     lookup_node_entry(int_to_index(Index), CHash);
 lookup_node_entry(Index, {NextList, stale}) ->
     %% optimization: also return new chash() with updated tree
     lookup_node_entry(Index,
-           {NextList, chash_nextfloat_list_to_gb_tree(NextList)});
+                      {NextList, chash_nextfloat_list_to_gb_tree(NextList)});
 lookup_node_entry(Index, FloatTree) ->
     query_tree(Index, FloatTree).
 
@@ -722,7 +724,8 @@ chash_nextfloat_list_to_gb_tree(NextFloatList) ->
 
 %% @private
 %% Queries the tree with the key.
--spec chash_gb_next(float(), float_tree()) -> {node_entry()}.
+-spec chash_gb_next(float(),
+                    float_tree()) -> {node_entry()}.
 
 chash_gb_next(X, {_, GbTree}) ->
     chash_gb_next1(X, GbTree).
