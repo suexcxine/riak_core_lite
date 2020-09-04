@@ -90,6 +90,7 @@
          chring  ::
              chash:chash() |
              undefined,   % chash ring of {IndexAsInt, Node} mappings
+         weights :: chash:owner_weight_list() | undefined,
          meta  :: dict:dict() | undefined,
          % dict of cluster-wide other data (primarily
          % bucket N-value, etc)
@@ -189,15 +190,22 @@ set_chash(State, CHash) ->
 all_members(#chstate{members = Members}) ->
     get_members(Members).
 
+%% @doc Produce a list of all nodes in the cluster with the given types
+-spec members(State :: chstate(), Types :: [member_status()]) -> [Node :: term()].
+
 members(#chstate{members = Members}, Types) ->
     get_members(Members, Types).
 
 %% @doc Produce a list of all active (not marked as down) cluster members
+-spec active_members(State :: chstate()) -> [Node :: term()].
+
 active_members(#chstate{members = Members}) ->
     get_members(Members,
                 [joining, valid, leaving, exiting]).
 
 %% @doc Returns a list of members guaranteed safe for requests
+-spec ready_members(State :: chstate()) -> [Node :: term()].
+
 ready_members(#chstate{members = Members}) ->
     get_members(Members, [valid, leaving]).
 
@@ -206,10 +214,7 @@ ready_members(#chstate{members = Members}) ->
                                               integer(),
                                           Node :: term()}].
 
-%% WARN: does not fit to specification in chash_rslicicng:
-%% node_entry() :: {index :: float(), Node :: term()}
-
-all_owners(State) -> chash:nodes(State#chstate.chring).
+all_owners(State) -> [{chash:index_to_int(I), N} || {I, N} <- chash:nodes(State#chstate.chring)].
 
 %% @doc Provide every preflist in the ring, truncated at N.
 -spec all_preflists(State :: chstate(),
@@ -270,6 +275,7 @@ fresh(RingSize, NodeName) ->
              members =
                  [{NodeName, {valid, VClock, [{gossip_vsn, 2}]}}],
              chring = chash:fresh(RingSize, NodeName), next = [],
+             weights = [{NodeName}, 100], %% currently weight not considered
              claimant = NodeName, seen = [{NodeName, VClock}],
              rvsn = VClock, vclock = VClock, meta = dict:new()}.
 
@@ -375,7 +381,7 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    replication:replicate(Key, State#chstate.chring).
+    [{chash:index_to_int(I), N} || {I, N} <- replication:replicate(Key, State#chstate.chring)].
 
 %% @doc Return a randomly-chosen node from amongst the owners.
 -spec random_node(State :: chstate()) -> Node :: term().
@@ -398,6 +404,9 @@ random_other_index(State) ->
       _ -> lists:nth(riak_core_rand:uniform(length(L)), L)
     end.
 
+%% @doc Return a partition index not owned by the node executing this function
+%%      or contained in the exclude list.
+%%      If there are no feasible index return no_indices.
 -spec random_other_index(State :: chstate(),
                          Exclude :: [term()]) -> chash:index_as_int() |
                                                  no_indices.
@@ -565,6 +574,10 @@ future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
           (NextOwner + NextInc * OrigDist) rem RingTop
     end.
 
+%% @doc Check if the index is either out of bounds of the ring size or the n
+%% value
+-spec check_invalid_future_index(non_neg_integer(), pos_integer(), integer() | undefined) -> boolean().
+
 check_invalid_future_index(OrigDist, NextCount,
                            NValCheck) ->
     OverRingSize = OrigDist >= NextCount,
@@ -636,6 +649,9 @@ remove_meta(Key, State) ->
 
 claimant(#chstate{claimant = Claimant}) -> Claimant.
 
+%% @doc Set the new claimant.
+-spec set_claimant(State :: chstate(), Claimant :: node()) -> NState :: chstate().
+
 set_claimant(State, Claimant) ->
     State#chstate{claimant = Claimant}.
 
@@ -645,8 +661,14 @@ set_claimant(State, Claimant) ->
 cluster_name(State) -> State#chstate.clustername.
 
 %% @doc Sets the unique identifer for this cluster.
+-spec set_cluster_name(State :: chstate(), Name :: {term(), term()}) -> chstate().
+
 set_cluster_name(State, Name) ->
     State#chstate{clustername = Name}.
+
+%% @doc Mark the cluster names as undefined if at least one is undefined.
+%% Else leave the names unchanged.
+-spec reconcile_names(RingA :: chstate(), RingB :: chstate()) -> {chstate(), chstate()}.
 
 reconcile_names(RingA = #chstate{clustername = NameA},
                 RingB = #chstate{clustername = NameB}) ->
@@ -657,11 +679,20 @@ reconcile_names(RingA = #chstate{clustername = NameA},
       false -> {RingA, RingB}
     end.
 
+%% @doc Increment the vector clock and return the new state.
+-spec increment_vclock(Node :: node(), State :: chstate()) -> chstate().
+
 increment_vclock(Node, State) ->
     VClock = vclock:increment(Node, State#chstate.vclock),
     State#chstate{vclock = VClock}.
 
+%% @doc Return the current ring version.
+-spec ring_version(chstate()) -> vclock:vclock() | undefined.
+
 ring_version(#chstate{rvsn = RVsn}) -> RVsn.
+
+%% @doc Increment the ring version and return the new state.
+-spec increment_ring_version(node(), chstate()) -> chstate().
 
 increment_ring_version(Node, State) ->
     RVsn = vclock:increment(Node, State#chstate.rvsn),
@@ -688,6 +719,10 @@ all_member_status(#chstate{members = Members}) ->
      || {Node, {Status, _VC, _}} <- Members,
         Status /= invalid].
 
+%% @doc return the member's meta value for the given key or undefined if the
+%% member or key cannot be found.
+-spec get_member_meta(chstate(), node(), atom()) -> term() | undefined.
+
 get_member_meta(State, Member, Key) ->
     case orddict:find(Member, State#chstate.members) of
       error -> undefined;
@@ -699,11 +734,15 @@ get_member_meta(State, Member, Key) ->
     end.
 
 %% @doc Set a key in the member metadata orddict
+-spec update_member_meta(node(), chstate(), node(), atom(), term()) -> chstate().
+
 update_member_meta(Node, State, Member, Key, Val) ->
     VClock = vclock:increment(Node, State#chstate.vclock),
     State2 = update_member_meta(Node, State, Member, Key,
                                 Val, same_vclock),
     State2#chstate{vclock = VClock}.
+
+-spec update_member_meta(node(), chstate(), node(), atom(), term(), same_vclock) -> chstate().
 
 update_member_meta(Node, State, Member, Key, Val,
                    same_vclock) ->
@@ -720,6 +759,9 @@ update_member_meta(Node, State, Member, Key, Val,
       false -> State
     end.
 
+%% @doc Remove the meta entries for the given member.
+-spec clear_member_meta(node(), chstate(), node()) -> chstate().
+
 clear_member_meta(Node, State, Member) ->
     Members = State#chstate.members,
     case orddict:is_key(Member, Members) of
@@ -734,21 +776,39 @@ clear_member_meta(Node, State, Member) ->
       false -> State
     end.
 
+%% @doc Mark a member as joining
+-spec add_member(node(), chstate(), node()) -> chstate().
+
 add_member(PNode, State, Node) ->
     set_member(PNode, State, Node, joining).
+
+%% @doc Mark a member as invalid
+-spec remove_member(node(), chstate(), node()) -> chstate().
 
 remove_member(PNode, State, Node) ->
     State2 = clear_member_meta(PNode, State, Node),
     set_member(PNode, State2, Node, invalid).
 
+%% @doc Mark a member as leaving
+-spec leave_member(node(), chstate(), node()) -> chstate().
+
 leave_member(PNode, State, Node) ->
     set_member(PNode, State, Node, leaving).
+
+%% @doc Mark a member as exiting
+-spec exit_member(node(), chstate(), node()) -> chstate().
 
 exit_member(PNode, State, Node) ->
     set_member(PNode, State, Node, exiting).
 
+%% @doc Mark a member as down
+-spec down_member(node(), chstate(), node()) -> chstate().
+
 down_member(PNode, State, Node) ->
     set_member(PNode, State, Node, down).
+
+%% @doc Mark a member with the given status
+-spec set_member(node(), chstate(), node(), member_status()) -> chstate().
 
 set_member(Node, CState, Member, Status) ->
     VClock = vclock:increment(Node, CState#chstate.vclock),
@@ -804,15 +864,19 @@ indices(State, Node) ->
 future_indices(State, Node) ->
     indices(future_ring(State), Node).
 
+%% @doc Return all node entries that will exist after the pending changes are
+%% applied.
 -spec all_next_owners(chstate()) -> [{integer(),
                                       term()}].
 
-%% WARN Uses chash() strucure directly
+%% WARN Uses chash() structure directly
 all_next_owners(CState) ->
     Next = riak_core_ring:pending_changes(CState),
     [{Idx, NextOwner} || {Idx, _, NextOwner, _, _} <- Next].
 
 %% @private
+%% Change the owner of the indices to the new owners.
+-spec change_owners(chstate(), [{integer(), node()}]) -> chstate().
 change_owners(CState, Reassign) ->
     lists:foldl(fun ({Idx, NewOwner}, CState0) ->
                         %% if called for indexes not in the current ring (during resizing)
@@ -825,6 +889,8 @@ change_owners(CState, Reassign) ->
                 CState, Reassign).
 
 %% @doc Return all indices that a node is scheduled to give to another.
+-spec disowning_indices(chstate(), node()) -> integer().
+
 disowning_indices(State, Node) ->
     case is_resizing(State) of
       false ->
@@ -838,6 +904,9 @@ disowning_indices(State, Node) ->
               disowned_during_resize(State, Idx, Owner)]
     end.
 
+%% @doc Check if the owner of the index changes during resize.
+-spec disowned_during_resize(chstate(), integer(), node()) -> boolean().
+
 disowned_during_resize(CState, Idx, Owner) ->
     %% catch error when index doesn't exist, we are disowning it if its going away
     NextOwner = try future_owner(CState, Idx) catch
@@ -849,9 +918,14 @@ disowned_during_resize(CState, Idx, Owner) ->
     end.
 
 %% @doc Returns a list of all pending ownership transfers.
+-spec pending_changes(chstate()) -> [{integer(), term(), term(), [module()], awaiting | complete}].
+
 pending_changes(State) ->
     %% For now, just return next directly.
     State#chstate.next.
+
+%% @doc Set the transfers as pending changes
+-spec set_pending_changes(chstate(), [{integer(), term(), term(), [module()], awaiting | complete}]) -> chstate().
 
 set_pending_changes(State, Transfers) ->
     State#chstate{next = Transfers}.
@@ -893,6 +967,8 @@ set_pending_resize(Resizing, Orig) ->
                                          SortedNext),
                      FutureCHash).
 
+%% @doc Abort the resizing procedure if possible and return true on a succesfull
+%% abort.
 -spec maybe_abort_resize(chstate()) -> {boolean(),
                                         chstate()}.
 
@@ -911,11 +987,13 @@ maybe_abort_resize(State) ->
       false -> {false, State}
     end.
 
+%% @doc Set the resize abort value to true.
 -spec set_pending_resize_abort(chstate()) -> chstate().
 
 set_pending_resize_abort(State) ->
     update_meta('$resized_ring_abort', true, State).
 
+%% @doc Add the transfar from source to target to the scheduled transfers
 -spec schedule_resize_transfer(chstate(),
                                {integer(), term()},
                                integer() | {integer(), term()}) -> chstate().
@@ -955,6 +1033,9 @@ reschedule_resize_transfers(State = #chstate{next =
                                          State, Next),
     NewState#chstate{next = NewNext}.
 
+%% @doc Reset the status of a resize operation
+-spec reschedule_resize_operation(pos_integer(), node(), term(), chstate()) -> {term(), chstate()}.
+
 reschedule_resize_operation(N, NewNode,
                             {Idx, N, '$resize', _Mods, _Status}, State) ->
     NewEntry = {Idx, NewNode, '$resize', ordsets:new(),
@@ -975,6 +1056,8 @@ reschedule_resize_operation(Node, NewNode,
           {NewEntry, NewState};
       false -> {Entry, State}
     end.
+
+-spec reschedule_inbound_resize_transfers({integer(), term()}, node(), node(), chstate()) -> {boolean(), chstate()}.
 
 reschedule_inbound_resize_transfers(Source, Node,
                                     NewNode, State) ->

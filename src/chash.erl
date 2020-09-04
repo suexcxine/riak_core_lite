@@ -77,7 +77,7 @@
          members/1, next_index/2, nodes/1, node_size/2,
          offsets/1, predecessors/2, predecessors/3,
          ring_increment/1, size/1, successors/2, successors/3,
-         update/3, weights/1]).
+         update/3]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -533,11 +533,6 @@ successors(_Index, _CHash, _N) ->
 %% partition. How to abstract from that?
 update(_IndexAsInt, _Name, _CHash) ->
     {}. %% TODO
-
-%% @doc Retrieves the current weight list of the chash.
--spec weights(CHash :: chash()) -> [weight()].
-
-weights({_, _, Weights}) -> Weights.
 
 %% ====================================================================
 %% Internal functions
