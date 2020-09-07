@@ -4,7 +4,7 @@
 %% 'riak_core:hash'.
 -module(hash).
 
--type algorithm() :: sha.
+-type algorithm() :: sha | md5.
 
 %% Used to emphasize that the float value should be within [0.0, 1.0).
 -type unit() :: float().
@@ -60,41 +60,46 @@ out_size() -> out_size(?HASH).
 -spec hash(Type :: algorithm(),
            Key :: binary()) -> Value :: binary().
 
-hash(sha, Key) -> crypto:hash(sha, Key).
+hash(sha, Key) -> crypto:hash(sha, Key);
+hash(md5, Key) -> crypto:hash(md5, Key).
 
 %% @doc See {@link as_integer/1}
 -spec as_integer(Type :: algorithm(),
                  Value :: binary() | unit()) -> integer().
 
-as_integer(sha, Value) when is_binary(Value) ->
-    <<Int:160/integer>> = Value, Int;
-as_integer(sha, Value) ->
+as_integer(Type, Value) when is_binary(Value) ->
+    BitSize = out_size(Type),
+    <<Int:BitSize/integer>> = Value,
+    Int;
+as_integer(Type, Value) ->
     % WARN possible loss of precision.
-    round(Value * max_integer()).
+    round(Value * max_integer(Type)).
 
 %% @doc See {@link as_binary/1}
 -spec as_binary(Type :: algorithm(),
                 Value :: integer() | unit()) -> binary().
 
-as_binary(sha, Value) when is_integer(Value) ->
-    <<Value:160/integer>>;
-as_binary(sha, Value) ->
-    as_binary(sha, as_integer(Value)).
+as_binary(Type, Value) when is_integer(Value) ->
+    BitSize = out_size(Type), <<Value:BitSize/integer>>;
+as_binary(Type, Value) ->
+    as_binary(Type, as_integer(Type, Value)).
 
 %% @doc See {@link as_unit/1}
 -spec as_unit(Type :: algorithm(),
               Value :: integer() | binary()) -> unit().
 
-as_unit(sha, Value) when is_integer(Value) ->
-    Value / max_integer();
-as_unit(sha, Value) -> as_unit(sha, as_integer(Value)).
+as_unit(Type, Value) when is_integer(Value) ->
+    Value / max_integer(Type);
+as_unit(Type, Value) ->
+    as_unit(Type, as_integer(Type, Value)).
 
 %% @doc See {@link max_integer/0}
 -spec max_integer(Type :: algorithm()) -> integer().
 
-max_integer(sha) -> 1 bsl 20 * 8.
+max_integer(Type) -> 1 bsl out_size(Type).
 
 %% @doc See {@link out_size/0}
 -spec out_size(Type :: algorithm()) -> integer().
 
-out_size(sha) -> 160.
+out_size(sha) -> 160;
+out_size(md5) -> 128.
