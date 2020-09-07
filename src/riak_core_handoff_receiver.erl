@@ -111,7 +111,7 @@ handle_info(timeout, State) ->
 
 process_message(?PT_MSG_INIT, MsgData,
                 State = #state{vnode_mod = VNodeMod, peer = Peer}) ->
-    <<Partition:160/integer>> = MsgData,
+    Partition = hash:as_integer(MsgData),
     logger:info("Receiving handoff data for partition "
                 "~p:~p from ~p",
                 [VNodeMod, Partition, Peer]),

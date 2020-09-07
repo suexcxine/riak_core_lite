@@ -71,7 +71,7 @@ check_ring(Ring, Nval) ->
 %% @doc Map a key hash (as binary or integer) to a partition ID [0, ring_size)
 hash_to_partition_id(CHashKey, RingSize)
     when is_binary(CHashKey) ->
-    <<CHashInt:160/integer>> = CHashKey,
+    CHashInt = hash:as_integer(CHashKey),
     hash_to_partition_id(CHashInt, RingSize);
 hash_to_partition_id(CHashInt, RingSize) ->
     CHashInt div chash:ring_increment(RingSize).
@@ -92,7 +92,7 @@ partition_id_to_hash(Id, RingSize) ->
 %% is a valid "boundary" value (first hash in some partition)
 hash_is_partition_boundary(CHashKey, RingSize)
     when is_binary(CHashKey) ->
-    <<CHashInt:160/integer>> = CHashKey,
+    CHashInt = hash:as_integer(CHashKey),
     hash_is_partition_boundary(CHashInt, RingSize);
 hash_is_partition_boundary(CHashInt, RingSize) ->
     CHashInt rem chash:ring_increment(RingSize) =:= 0.

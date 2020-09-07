@@ -1011,11 +1011,9 @@ repair_pairs(Ring, Partition) ->
     Owner = riak_core_ring:index_owner(Ring, Partition),
     CH = riak_core_ring:chash(Ring),
     [_, Before] =
-        chash:predecessors(<<Partition:160/integer>>, CH,
-                           2), %% WARN SHA-1
-    [After] =
-        chash:successors(<<Partition:160/integer>>, %% WARN SHA-1
-                         CH, 1),
+        chash:predecessors(hash:as_binary(Partition), CH, 2),
+    [After] = chash:successors(hash:as_binary(Partition),
+                               CH, 1),
     [Before, {Partition, Owner}, After].
 
 %% @private

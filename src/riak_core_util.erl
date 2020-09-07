@@ -201,7 +201,7 @@ md5(Bin) -> crypto:hash(md5, Bin).
 unique_id_62() ->
     Rand = sha(term_to_binary({make_ref(),
                                os:timestamp()})),
-    <<I:160/integer>> = Rand,
+    I = hash:as_integer(Rand),
     integer_to_list(I, 62).
 
 %% purge_response() = boolean()
@@ -901,7 +901,7 @@ preflist_siblings(Index, Ring) ->
                         riak_core_ring()) -> [index()].
 
 preflist_siblings(Index, N, Ring) ->
-    IndexBin = <<Index:160/integer>>,
+    IndexBin = hash:as_binary(Index),
     PL = riak_core_ring:preflist(IndexBin, Ring),
     Indices = [Idx || {Idx, _} <- PL],
     RevIndices = lists:reverse(Indices),
@@ -927,7 +927,7 @@ responsible_preflists(Index, Ring) ->
                             riak_core_ring()) -> [index_n()].
 
 responsible_preflists(Index, AllN, Ring) ->
-    IndexBin = <<Index:160/integer>>,
+    IndexBin = hash:as_binary(Index),
     PL = riak_core_ring:preflist(IndexBin, Ring),
     Indices = [Idx || {Idx, _} <- PL],
     RevIndices = lists:reverse(Indices),

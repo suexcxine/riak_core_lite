@@ -307,18 +307,14 @@ sum_map_weights([], LastSZ, LastSZ_total) ->
 
 hash_binary_via_float_map(Key, Map) ->
     Tree = make_tree(Map),
-    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha, Key),
-    Float = Int / (?SHA_MAX),
-    query_tree(Float, Tree).
+    query_tree(hash:as_unit(hash:hash(Key)), Tree).
 
 %% @doc Query a float tree with a binary.
 -spec hash_binary_via_float_tree(binary(),
                                  float_tree()) -> {float(), owner_name()}.
 
 hash_binary_via_float_tree(Key, Tree) ->
-    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha, Key),
-    Float = Int / (?SHA_MAX),
-    query_tree(Float, Tree).
+    query_tree(hash:as_unit(hash:hash(Key)), Tree).
 
 %% ===================================================================
 %% Public API chash
@@ -352,14 +348,14 @@ fresh(_NumPartitions, SeedNode) ->
 
 index_to_int(Index) ->
     % WARN possible loss of precision.
-    round(Index * (?SHA_MAX)).
+    hash:as_integer(Index).
 
 %% @doc Converts a given integer representation of an index to its original
 %% form. Possible loss of precision.
 -spec int_to_index(Int :: integer()) -> Index ::
                                             index().
 
-int_to_index(Int) -> Int / (?SHA_MAX).
+int_to_index(Int) -> hash:as_unit(Int).
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
 %% Returns the chash structure to make use of the lookup structure.
@@ -391,9 +387,7 @@ lookup_node_entry(Index, {_, FloatTree} = CHash) ->
 -spec key_of(ObjectName :: term()) -> index().
 
 key_of(ObjectName) ->
-    <<Int:(20 * 8)/unsigned>> = crypto:hash(sha,
-                                            term_to_binary(ObjectName)),
-    Int / (?SHA_MAX).
+    hash:as_unit(hash:hash(term_to_binary(ObjectName))).
 
 %% @doc Return all Nodes that own any partitions in the ring.
 -spec members(CHash :: chash()) -> [chash_node()].

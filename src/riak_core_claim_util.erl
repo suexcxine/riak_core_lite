@@ -106,7 +106,7 @@ node_load(R, NVal, DownNodes) ->
 
 vnode_load(R, NVal, DownNodes) ->
     UpNodes = riak_core_ring:all_members(R) -- DownNodes,
-    Keys = [<<(I + 1):160/integer>>
+    Keys = [hash:as_binary(I + 1)
             || {I, _Owner} <- riak_core_ring:all_owners(R)],
     %% NValParts = Nval * riak_core_ring:num_partitions(R),
     AllPLs = [riak_core_apl:get_apl_ann(Key, NVal, R,

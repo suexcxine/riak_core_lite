@@ -75,7 +75,7 @@ resize_item() ->
                   Ring0 = riak_core_ring:fresh(RingSize, node()),
                   Ring1 = riak_core_ring:resize(Ring0,trunc(GrowthF * RingSize)),
                   Ring = riak_core_ring:set_pending_resize(Ring1, Ring0),
-                  CHashKey = <<(IndexStart-1):160/integer>>,
+                  CHashKey = hash:as_binary(IndexStart - 1),
                   Preflist = riak_core_ring:preflist(CHashKey, Ring0),
                   FuturePreflist = riak_core_ring:preflist(CHashKey, Ring1),
                   {SourceIdx, _} = lists:nth(Pos+1, Preflist),
@@ -118,7 +118,7 @@ check_nval(RingSize, GrowthF) ->
 
 
 prop_future_index_failed({CHashKey, OrigIdx, TargetIdx, NValCheck, _, R}) ->
-    <<CHashInt:160/integer>> = CHashKey,
+    CHashInt = hash:as_integer(CHashKey),
     FoundTarget = riak_core_ring:future_index(CHashKey, OrigIdx, NValCheck, R),
     io:format("key: ~p~nsource: ~p~ncurrsize: ~p~nfuturesize: ~p~nexpected: ~p~nactual: ~p~n",
               [CHashInt, OrigIdx,

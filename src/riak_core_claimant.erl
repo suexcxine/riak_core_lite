@@ -628,7 +628,7 @@ schedule_first_resize_transfer(smaller,
                                {Idx, _} = IdxOwner, none, Resized) ->
     %% partition no longer exists in shrunk ring, first successor will be
     %% new owner of its data
-    Target = hd(riak_core_ring:preflist(<<Idx:160/integer>>,
+    Target = hd(riak_core_ring:preflist(hash:as_binary(Idx),
                                         Resized)),
     riak_core_ring:schedule_resize_transfer(Resized,
                                             IdxOwner, Target);

@@ -34,7 +34,7 @@
 -define(TEST_ITERATIONS, 5000).
 -define(QC_OUT(P),
         proper:on_output(fun(Str, Args) -> io:format(user, Str, Args) end, P)).
--define(RINGTOP, trunc(math:pow(2,160)-1)).  % SHA-1 space
+-define(RINGTOP, hash:max_integer() - 1).
 
 -export([test/0,
          test/1]).
@@ -103,8 +103,8 @@ prop_chash_next_index() ->
               Results =
                   [{element(
                       1,
-                      hd(chash:successors(<<(((Index + Delta) + ?RINGTOP)
-                                             rem ?RINGTOP):160/integer>>,
+                      hd(chash:successors(hash:as_binary(((Index + Delta) + ?RINGTOP)
+                                             rem ?RINGTOP),
                                           CHash))),
                     chash:next_index((((Index + Delta) + ?RINGTOP) rem ?RINGTOP),
                                      CHash)} ||

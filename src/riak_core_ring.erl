@@ -229,7 +229,7 @@ all_owners(State) ->
 all_preflists(State, N) ->
     [lists:sublist(preflist(Key, State), N)
      || Key
-            <- [<<(I + 1):160/integer>>
+            <- [hash:as_binary(I + 1)
                 || {I, _Owner} <- (?MODULE):all_owners(State)]].
 
 %% @doc For two rings, return the list of owners that have differing ownership.
@@ -512,8 +512,7 @@ rename_node(State = #chstate{chring = Ring,
                         chstate()) -> integer().
 
 responsible_index(ChashKey, #chstate{chring = Ring}) ->
-    <<IndexAsInt:160/integer>> =
-        ChashKey, %% WARN hard-coded SHA-1 values
+    IndexAsInt = hash:as_integer(ChashKey),
     chash:next_index(IndexAsInt, Ring).
 
 %% @doc Given a key and an index in the current ring, determine
@@ -542,8 +541,7 @@ future_index(CHashKey, OrigIdx, NValCheck, State) ->
 
 future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
              NextCount) ->
-    <<CHashInt:160/integer>> =
-        CHashKey, %% WARN hard-coded SHA-1 values
+    CHashInt = hash:as_integer(CHashKey),
     OrigInc = chash:ring_increment(OrigCount),
     NextInc = chash:ring_increment(NextCount),
     %% Determine position in the ring of partition that owns key (head of preflist)
@@ -2012,7 +2010,7 @@ exclusion_test() ->
     ?assertEqual([{730750818665451459101842416358141509827966271488,
                    node()},
                   {0, x}],
-                 (preflist(<<1:160/integer>>, Ring1))).
+                 (preflist(hash:as_binary(1), Ring1))).
 
 random_other_node_test() ->
     Ring0 = fresh(2, node()),
@@ -2159,7 +2157,7 @@ resize_test() ->
                  (future_num_partitions(Ring3))),
     ?assertEqual((num_partitions(Ring2)),
                  (num_partitions(future_ring(Ring3)))),
-    Key = <<0:160/integer>>,
+    Key = hash:as_binary(0),
     OrigIdx = element(1, hd(preflist(Key, Ring0))),
     %% for non-resize transitions index should be the same
     ?assertEqual(OrigIdx,

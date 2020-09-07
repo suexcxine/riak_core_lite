@@ -341,7 +341,7 @@ perfect_ring(RingSize, Nodes)
     PerfectRing.
 
 last_in_ring() ->
-    <<1461501637330902918203684832716283019655932542975:160/unsigned>>.
+    hash:as_binary(hash:max_integer() - 1).
 
 six_node_test() ->
     %% its non-trivial to create a real 6 node ring, so here's one we made
@@ -549,7 +549,7 @@ chbin_test_scenario(Size, NumNodes) ->
     CHash = riak_core_ring:chash(Ring),
     CHBin = chashbin:create(CHash),
     Inc = chash:ring_increment(Size),
-    HashKeys = [<<X:160/integer>>
+    HashKeys = [hash:as_binary(X)
                 || X <- lists:seq(0, RingTop, Inc div 2)],
     Shuffled = riak_core_util:shuffle(Nodes),
     _ = CHBin,

@@ -33,13 +33,15 @@
 
 -export_type([chashbin/0]).
 
-%% 160 bits for hash, 16 bits for node id
+%% hash:out_size() bits for hash, 16 bits for node id
 %% these macros break edoc
 %% also these macros are not used consistently, commenting out for now
 %%-define(UNIT, 176).
 %%-define(ENTRY, binary-unit:?UNIT).
 
--type owners_bin() :: <<_:_*176>>.
+-define(BITSIZE, hash:out_size()).
+
+-type owners_bin() :: binary().
 
 -type index() :: chash:index_as_int().
 
@@ -96,8 +98,10 @@ to_chash(CHBin) ->
 -spec to_list(chashbin()) -> [chash:node_entry()].
 
 to_list(#chashbin{owners = OBin, nodes = Nodes}) ->
+    %% Not Sure if bit_size() is legal here since using it directly is not
+    BitSize = hash:out_size(),
     [{element(Id, Nodes), chash:int_to_index(Idx)}
-     || <<Idx:160/integer, Id:16/integer>> <= OBin].
+     || <<Idx:BitSize/integer, Id:16/integer>> <= OBin].
 
 %% @doc
 %% Convert a `chashbin' to a list of `{Index, Owner}' pairs for
@@ -107,17 +111,20 @@ to_list(#chashbin{owners = OBin, nodes = Nodes}) ->
 
 to_list_filter(Pred,
                #chashbin{owners = Bin, nodes = Nodes}) ->
+    BitSize = hash:out_size(),
     [{Idx, element(Id, Nodes)}
-     || <<Idx:160/integer, Id:16/integer>> <= Bin,
+     || <<Idx:BitSize/integer, Id:16/integer>> <= Bin,
         Pred({Idx, element(Id, Nodes)})].
 
 %% @doc Determine the ring index responsible for a given chash key
 -spec responsible_index(chash_key(),
                         chashbin()) -> index().
 
-responsible_index(<<HashKey:160/integer>>, CHBin) ->
-    responsible_index(HashKey, CHBin);
+responsible_index(HashKey, CHBin)
+    when is_binary(HashKey) ->
+    responsible_index(hash:as_integer(HashKey), CHBin);
 responsible_index(HashKey, #chashbin{owners = Bin}) ->
+    BitSize = hash:out_size(),
     {Res, true} = lists:foldl(fun (I, {Start, Done}) ->
                                       case Done of
                                         true -> {Start, true};
@@ -133,17 +140,20 @@ responsible_index(HashKey, #chashbin{owners = Bin}) ->
                               end,
                               {0, false},
                               [Idx
-                               || <<Idx:160/integer, _:16/integer>> <= Bin]),
+                               || <<Idx:BitSize/integer, _:16/integer>>
+                                      <= Bin]),
     Res.
 
 %% @doc Determine the ring position responsible for a given chash key
 -spec responsible_position(chash_key(),
                            chashbin()) -> non_neg_integer().
 
-responsible_position(<<HashKey:160/integer>>, CHBin) ->
-    responsible_position(HashKey, CHBin);
+responsible_position(HashKey, CHBin)
+    when is_binary(HashKey) ->
+    responsible_position(hash:as_integer(HashKey), CHBin);
 responsible_position(HashKey,
                      #chashbin{owners = Bin}) ->
+    BitSize = hash:out_size(),
     {Res, _, true} = lists:foldl(fun (I,
                                       {Pos, Start, Done}) ->
                                          case Done of
@@ -160,7 +170,8 @@ responsible_position(HashKey,
                                  end,
                                  {1, 0, false},
                                  [Idx
-                                  || <<Idx:160/integer, _:16/integer>> <= Bin]),
+                                  || <<Idx:BitSize/integer, _:16/integer>>
+                                         <= Bin]),
     Res.
 
 %% @doc Return the node that owns the given index
@@ -190,8 +201,8 @@ num_partitions(#chashbin{size = Size}) -> Size.
 
 iterator(first, CHBin) ->
     #iterator{pos = 0, start = 0, chbin = CHBin};
-iterator(<<HashKey:160/integer>>, CHBin) ->
-    iterator(HashKey, CHBin);
+iterator(HashKey, CHBin) when is_binary(HashKey) ->
+    iterator(hash:as_integer(HashKey), CHBin);
 iterator(HashKey, CHBin) ->
     Pos = responsible_position(HashKey, CHBin),
     #iterator{pos = Pos, start = Pos, chbin = CHBin}.
@@ -201,8 +212,10 @@ iterator(HashKey, CHBin) ->
 
 itr_value(#iterator{pos = Pos,
                     chbin = #chashbin{owners = Bin, nodes = Nodes}}) ->
-    <<_:Pos/binary-unit:176, Idx:160/integer, Id:16/integer,
-      _/binary>> =
+    BitSize = hash:out_size(),
+    %% WARN not sure how to handle binary-unit size here
+    <<_:Pos/binary-unit:176, Idx:BitSize/integer,
+      Id:16/integer, _/binary>> =
         Bin,
     Owner = element(Id, Nodes),
     {Idx, Owner}.
@@ -226,23 +239,26 @@ itr_next(Itr = #iterator{pos = Pos, start = Start,
                                              iterator()}.
 
 itr_pop(N, Itr = #iterator{pos = Pos, chbin = CHBin}) ->
+    BitSize = hash:out_size(),
     #chashbin{size = Size, owners = Bin, nodes = Nodes} =
         CHBin,
     L = case Bin of
+          %% WARN not sure how to handle size of the binary-unit here
           <<_:Pos/binary-unit:176, Bin2:N/binary-unit:176,
             _/binary>> ->
               [{Idx, element(Id, Nodes)}
-               || <<Idx:160/integer, Id:16/integer>> <= Bin2];
+               || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2];
           _ ->
               Left = N + Pos - Size,
               Skip = Pos - Left,
+              %% WARN not sure how to handle size of the binary-unit here
               <<Bin3:Left/binary-unit:176, _:Skip/binary-unit:176,
                 Bin2/binary>> =
                   Bin,
               L1 = [{Idx, element(Id, Nodes)}
-                    || <<Idx:160/integer, Id:16/integer>> <= Bin2],
+                    || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2],
               L2 = [{Idx, element(Id, Nodes)}
-                    || <<Idx:160/integer, Id:16/integer>> <= Bin3],
+                    || <<Idx:BitSize/integer, Id:16/integer>> <= Bin3],
               L1 ++ L2
         end,
     Pos2 = (Pos + N) rem Size,
@@ -269,14 +285,16 @@ itr_next_while(Pred, Itr) ->
 
 owner_bin([], _, Bin) -> Bin;
 owner_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
+    BitSize = hash:out_size(),
     {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
     Bin2 = <<Bin/binary,
-             (chash:index_to_int(Idx)):160/integer, Id:16/integer>>,
+             (chash:index_to_int(Idx)):BitSize/integer,
+             Id:16/integer>>,
     owner_bin(Owners, Nodes, Bin2).
 
 %% Return iterator pointing to the given index
-exact_iterator(<<Idx:160/integer>>, CHBin) ->
-    exact_iterator(Idx, CHBin);
+exact_iterator(Idx, CHBin) when is_binary(Idx) ->
+    exact_iterator(hash:as_integer(Idx), CHBin);
 exact_iterator(Idx, CHBin) ->
     Pos = responsible_position(Idx, CHBin),
     #iterator{pos = Pos, start = Pos, chbin = CHBin}.
