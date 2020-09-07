@@ -1,5 +1,9 @@
-%% @doc Implementation
-
+%% @doc Library module for different replication algorithms.
+%% In the context of this module a replication algorithm does not handle the
+%% actual storage of the data but rather constructs an ordered list of nodes
+%% the replications should be stored on (preflist).
+%% The algorithm used is determined by the configuration
+%% 'riak_core:replication'.
 -module(replication).
 
 -ifdef(TEST).
@@ -16,7 +20,8 @@
 
 -type node_entry() :: chash:node_entry().
 
--spec replicate(Key :: index(), CHash :: chash()) -> {[node_entry()], chash()}.
+-spec replicate(Key :: index(),
+                CHash :: chash()) -> {[node_entry()], chash()}.
 
 %% @doc Constructs the preference list according to the algorithm set in the
 %% riak_core:replication configuration key or random by defualt.
@@ -26,7 +31,9 @@
 %% -incremental: rotate the key around the ring with the step lengths depending
 %% on the segment the key currently belongs to
 replicate(Key, CHash) ->
-    replicate(application:getenv(riak_core, replication, random), Key, CHash).
+    replicate(application:getenv(riak_core, replication,
+                                 random),
+              Key, CHash).
 
 %% @doc Constructs the preference list according to the given algorithm:
 %% -random: draw random bins until enough are drawn
@@ -36,8 +43,8 @@ replicate(Key, CHash) ->
 %% on the segment the key currently belongs to
 -spec replicate(Method :: random | rotation |
                           incremental,
-                Key :: index(),
-                CHash :: chash()) -> {[node_entry()], chash()}.
+                Key :: index(), CHash :: chash()) -> {[node_entry()],
+                                                      chash()}.
 
 replicate(random, Key, CHash) -> random(Key, CHash);
 replicate(rotation, Key, CHash) -> rotation(Key, CHash);
@@ -49,26 +56,29 @@ replicate(_, Key, CHash) -> random(Key, CHash).
 %% @private
 %% Constructs the preference list for the given key via the random
 %% algorithm.
--spec random(index(), chash()) -> {[node_entry()], chash()}.
+-spec random(index(), chash()) -> {[node_entry()],
+                                   chash()}.
 
 random(Key, CHash) ->
     rand:seed(exsss, chash:index_to_int(Key)),
-    {NodeEntry, CHash2} = chash:lookup_node_entry(Key, CHash),
+    {NodeEntry, CHash2} = chash:lookup_node_entry(Key,
+                                                  CHash),
     {PrefList, CHash3} = random(CHash2,
-                         length(chash:members(CHash2)),
-                         [NodeEntry]),
+                                length(chash:members(CHash2)), [NodeEntry]),
     {lists:reverse(PrefList), CHash3}.
 
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
--spec random(chash(), pos_integer(), [node_entry()]) -> {[node_entry()], chash()}.
+-spec random(chash(), pos_integer(),
+             [node_entry()]) -> {[node_entry()], chash()}.
 
 random(CHash, N, PrefList) ->
     case length(PrefList) >= N of
       true -> {PrefList, CHash};
       false ->
-          {Node, CHash2} = chash:lookup_node_entry(rand:uniform(), CHash),
+          {Node, CHash2} = chash:lookup_node_entry(rand:uniform(),
+                                                   CHash),
           NPref = case lists:member(Node, PrefList) of
                     true -> PrefList;
                     false -> [Node | PrefList]
@@ -79,19 +89,22 @@ random(CHash, N, PrefList) ->
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
--spec rotation(index(), chash()) -> {[node_entry()], chash()}.
+-spec rotation(index(), chash()) -> {[node_entry()],
+                                     chash()}.
 
 rotation(Key, CHash) ->
     {Node, CHash2} = chash:lookup_node_entry(Key, CHash),
     {PrefList, CHash3} = rotation(Key, CHash2,
-                           length(chash:members(CHash2)), chash:offsets(CHash2),
-                           [], [Node], 0),
+                                  length(chash:members(CHash2)),
+                                  chash:offsets(CHash2), [], [Node], 0),
     {lists:reverse(PrefList), CHash3}.
 
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
--spec rotation(index(), chash(), pos_integer(), [index()], [index()], [node_entry()], non_neg_integer()) -> {[node_entry()], chash()}.
+-spec rotation(index(), chash(), pos_integer(),
+               [index()], [index()], [node_entry()],
+               non_neg_integer()) -> {[node_entry()], chash()}.
 
 rotation(Key, CHash, N, [], NextOffsets, PrefList, I) ->
     rotation(Key, CHash, N, lists:reverse(NextOffsets), [],
@@ -103,20 +116,22 @@ rotation(Key, CHash, N, Offsets, NextOffsets, PrefList,
       false ->
           [Offset | Rest] = Offsets,
           Step = Offset / math:pow(2, I),
-          {{NKey, NPref}, NCHash} = step(Key, CHash, Step, PrefList),
-          {{NNKey, NNPref}, NNCHash} = rotate(NKey, NCHash, Step * 2, NPref,
-                                   I),
+          {{NKey, NPref}, NCHash} = step(Key, CHash, Step,
+                                         PrefList),
+          {{NNKey, NNPref}, NNCHash} = rotate(NKey, NCHash,
+                                              Step * 2, NPref, I),
           NNNKey = increment(NNKey, Offset),
-          rotation(NNNKey, NNCHash, N, Rest, [Offset | NextOffsets],
-                   NNPref, I + 1)
+          rotation(NNNKey, NNCHash, N, Rest,
+                   [Offset | NextOffsets], NNPref, I + 1)
     end.
 
 %% @private
 %% Constructs the preference list for the given key via the incremental
 %% algorithm.
--spec incremental(index(), chash()) -> {[node_entry()], chash()}.
+-spec incremental(index(), chash()) -> {[node_entry()],
+                                        chash()}.
 
-incremental(Key, CHash) -> 
+incremental(Key, CHash) ->
     {Node, CHash2} = chash:lookup_node_entry(Key, CHash),
     incremental(Key, CHash2, length(chash:members(CHash2)),
                 [Node]).
@@ -124,14 +139,15 @@ incremental(Key, CHash) ->
 %% @private
 %% Constructs the preference list for the given key via the incremental
 %% algorithm.
--spec incremental(index(), chash(), pos_integer(), [node_entry()]) -> {[node_entry()], chash()}.
+-spec incremental(index(), chash(), pos_integer(),
+                  [node_entry()]) -> {[node_entry()], chash()}.
 
 incremental(Key, CHash, N, PrefList) ->
     case length(PrefList) >= N of
       true -> {PrefList, CHash};
       false ->
           {{NKey, NPref}, CHash2} = step(Key, CHash,
-                               chash:node_size(Key, CHash), PrefList),
+                                         chash:node_size(Key, CHash), PrefList),
           incremental(NKey, CHash2, N, NPref)
     end.
 
@@ -153,7 +169,8 @@ increment(Key, Offset) ->
 
 %% @private
 %% Moves the key by offset and adds the owning node to the preference list.
--spec step(index(), chash(), index(), [node_entry()]) -> {{index(), [node_entry()]}, chash()}.
+-spec step(index(), chash(), index(),
+           [node_entry()]) -> {{index(), [node_entry()]}, chash()}.
 
 step(Key, CHash, Offset, PrefList) ->
     NKey = increment(Key, Offset),
@@ -166,7 +183,9 @@ step(Key, CHash, Offset, PrefList) ->
 
 %% @private
 %% Rotates the key for one section
--spec rotate(index(), chash(), index(), [node_entry()], non_neg_integer()) -> {{index(), [node_entry()]}, chash()}.
+-spec rotate(index(), chash(), index(), [node_entry()],
+             non_neg_integer()) -> {{index(), [node_entry()]},
+                                    chash()}.
 
 rotate(Key, CHash, Offset, PrefList, I) ->
     C = lists:seq(1,
@@ -217,8 +236,9 @@ is_unique(Mode) ->
     Key = 0.345,
     CHash = test_chash(),
     {PrefList, _} = replicate(Mode, Key, CHash),
-    PrefNodes = [N || {I, N} <= PrefList],
-    length(PrefList) == sets:size(sets:from_list(PrefNodes)).
+    PrefNodes = [N || {I, N} <- PrefList],
+    length(PrefList) ==
+      sets:size(sets:from_list(PrefNodes)).
 
 determinism_random_test() ->
     ?assert((is_deterministic(random))).
