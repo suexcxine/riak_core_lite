@@ -14,7 +14,7 @@
 
 -export([replicate/2]).
 
--type index() :: chash:index().
+-type index() :: chash:index_as_int().
 
 -type chash() :: chash:chash().
 
@@ -49,9 +49,7 @@ replicate(Key, CHash) ->
 replicate(random, Key, CHash) -> random(Key, CHash);
 replicate(rotation, Key, CHash) -> rotation(Key, CHash);
 replicate(incremental, Key, CHash) ->
-    incremental(Key, CHash);
-% default:
-replicate(_, Key, CHash) -> random(Key, CHash).
+    incremental(Key, CHash).
 
 %% @private
 %% Constructs the preference list for the given key via the random
@@ -60,7 +58,7 @@ replicate(_, Key, CHash) -> random(Key, CHash).
                                    chash()}.
 
 random(Key, CHash) ->
-    rand:seed(exsss, chash:index_to_int(Key)),
+    rand:seed(exsss, hash:as_integer(Key)),
     {NodeEntry, CHash2} = chash:lookup_node_entry(Key,
                                                   CHash),
     {PrefList, CHash3} = random(CHash2,
@@ -77,8 +75,9 @@ random(CHash, N, PrefList) ->
     case length(PrefList) >= N of
       true -> {PrefList, CHash};
       false ->
-          {Node, CHash2} = chash:lookup_node_entry(rand:uniform(),
-                                                   CHash),
+          {Node, CHash2} =
+              chash:lookup_node_entry(hash:as_integer(rand:uniform()),
+                                      CHash),
           NPref = case lists:member(Node, PrefList) of
                     true -> PrefList;
                     false -> [Node | PrefList]
@@ -115,7 +114,9 @@ rotation(Key, CHash, N, Offsets, NextOffsets, PrefList,
       true -> {PrefList, CHash};
       false ->
           [Offset | Rest] = Offsets,
-          Step = Offset / math:pow(2, I),
+          %% WARN potential rounding errors
+          %% need to look into a more sophisticated creation of subsections
+          Step = math:round(Offset / math:pow(2, I)),
           {{NKey, NPref}, NCHash} = step(Key, CHash, Step,
                                          PrefList),
           {{NNKey, NNPref}, NNCHash} = rotate(NKey, NCHash,
@@ -160,12 +161,7 @@ incremental(Key, CHash, N, PrefList) ->
 -spec increment(index(), index()) -> index().
 
 increment(Key, Offset) ->
-    % WARN Only works with key on unit interval
-    % TODO Abstract to any value range of Key
-    case Key + Offset >= 1.0 of
-      true -> Key + Offset - 1.0;
-      false -> Key + Offset
-    end.
+    (Key + Offset) rem hash:max_integer().
 
 %% @private
 %% Moves the key by offset and adds the owning node to the preference list.
@@ -201,6 +197,8 @@ rotate(Key, CHash, Offset, PrefList, I) ->
 
 -ifdef(TEST).
 
+-define(TEST_KEY, 3 bsl 157).
+
 test_chash() ->
     W0 = [{node0, 100}],
     W1 = [{node0, 100}, {node1, 100}],
@@ -216,26 +214,23 @@ test_chash() ->
     {F, stale, W4}.
 
 is_deterministic(Mode) ->
-    Key = 0.345,
     CHash = test_chash(),
-    {PrefList, Chash2} = replicate(Mode, Key, CHash),
+    {PrefList, Chash2} = replicate(Mode, ?TEST_KEY, CHash),
     lists:all(fun (_I) ->
-                      {PrefList2, _} = replicate(Mode, Key, CHash2),
+                      {PrefList2, _} = replicate(Mode, ?TEST_KEY, CHash2),
                       PrefList2 == PrefList
               end,
               lists:seq(1, 100)).
 
 is_complete(Mode) ->
-    Key = 0.345,
     CHash = test_chash(),
     N = 4,
-    {PrefList, _} = replicate(Mode, Key, CHash),
+    {PrefList, _} = replicate(Mode, ?TEST_KEY, CHash),
     length(PrefList) == N.
 
 is_unique(Mode) ->
-    Key = 0.345,
     CHash = test_chash(),
-    {PrefList, _} = replicate(Mode, Key, CHash),
+    {PrefList, _} = replicate(Mode, ?TEST_KEY, CHash),
     PrefNodes = [N || {I, N} <- PrefList],
     length(PrefList) ==
       sets:size(sets:from_list(PrefNodes)).

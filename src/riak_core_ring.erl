@@ -218,7 +218,7 @@ ready_members(#chstate{members = Members}) ->
                                           Node :: term()}].
 
 all_owners(State) ->
-    [{chash:index_to_int(I), N}
+    [{hash:as_integer(I), N}
      || {I, N} <- chash:nodes(State#chstate.chring)].
 
 %% @doc Provide every preflist in the ring, truncated at N.
@@ -387,7 +387,7 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    [{chash:index_to_int(I), N}
+    [{hash:as_integer(I), N}
      || {I, N}
             <- replication:replicate(Key, State#chstate.chring)].
 

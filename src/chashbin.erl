@@ -100,7 +100,7 @@ to_chash(CHBin) ->
 to_list(#chashbin{owners = OBin, nodes = Nodes}) ->
     %% Not Sure if bit_size() is legal here since using it directly is not
     BitSize = hash:out_size(),
-    [{element(Id, Nodes), chash:int_to_index(Idx)}
+    [{element(Id, Nodes), Idx}
      || <<Idx:BitSize/integer, Id:16/integer>> <= OBin].
 
 %% @doc
@@ -288,8 +288,7 @@ owner_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
     BitSize = hash:out_size(),
     {Owner, Id} = lists:keyfind(Owner, 1, Nodes),
     Bin2 = <<Bin/binary,
-             (chash:index_to_int(Idx)):BitSize/integer,
-             Id:16/integer>>,
+             (hash:as_integer(Idx)):BitSize/integer, Id:16/integer>>,
     owner_bin(Owners, Nodes, Bin2).
 
 %% Return iterator pointing to the given index
