@@ -1,7 +1,7 @@
 %% @doc The hash module abstracts a hash function together with its attributes
 %% like maximum range and a library to convert the hash value to different types
 %% and ranges. The hash function used is determined by the configuration
-%% 'riak_core:hash'.
+%% 'riak_core:hash'. Possible values are [sha, md5].
 -module(hash).
 
 -type algorithm() :: sha | md5.
@@ -42,7 +42,7 @@ as_unit(Value) -> as_unit(?HASH, Value).
 %% @doc Wrap around value of the hash algorithm output.
 %% More specific if applied to the Riak Core ring this value would be used to
 %% compute the wrap around point and is therefore the first strict positive
-%% representative of the modulo equivalency class of 0.
+%% representative of the modulo congruency of 0.
 -spec max_integer() -> integer().
 
 max_integer() -> max_integer(?HASH).
