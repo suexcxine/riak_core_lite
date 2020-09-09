@@ -57,11 +57,9 @@
 -endif.
 
 %% -compile(export_all).
--export([make_size_map/1, make_size_map/2,
-         sum_map_weights/1, make_tree/1, query_tree/2,
-         hash_binary_via_size_map/2,
-         hash_binary_via_index_tree/2, pretty_with_integers/2,
-         pretty_with_integers/3]).
+-export([make_size_map/1, make_size_map/2, make_tree/1,
+         query_tree/2, hash_binary_via_size_map/2,
+         hash_binary_via_index_tree/2]).
 
 %% chash API
 -export([contains_name/2, fresh/2, lookup/2,
@@ -95,12 +93,8 @@
 
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
 %% never valid in our case.  But teaching Dialyzer that is difficult.
--opaque index_tree() :: gb_trees:tree(index_as_int(),
-                                      chash_node()).
-
-%% Used when "prettying" a float map.
--type owner_int_range() :: {chash_node(),
-                            non_neg_integer(), non_neg_integer()}.
+-type index_tree() :: gb_trees:tree(index_as_int(),
+                                    chash_node()).
 
 %% Mapping of an owner to its relative weight.
 -type owner_weight() :: {chash_node(), weight()}.
@@ -108,14 +102,15 @@
 %% A owner_weight_list is a mapping of owner_name() to their relative weight.
 -type owner_weight_list() :: [owner_weight()].
 
+%% Mapping of node to its difference in weight scaled to hash:max_integer()
 -type diff_map() :: [{chash_node(), integer()}].
 
-%% The chash type is a pair of a index_list and the according float tree
+%% The chash type is a pair of a index_list and the according index tree
 %% for an efficient query.
-%% When the float tree is not up-to-date with the list it is stale instead.
+%% When the index tree is not up-to-date with the list it is stale instead.
 -type chash() :: {index_list(), stale | index_tree()}.
 
-%% Bit output of the hash function.
+%% Binary output of the hash function.
 %% Size of hash:out_size().
 -type index() :: binary().
 
@@ -126,11 +121,14 @@
 %% A single node is identified by its term and starting index.
 -type node_entry() :: {index_as_int(), chash_node()}.
 
-%% TODO Is it necessary to export those?
--export_type([size_map/0, index_tree/0]).
-
 %% chash API
 -export_type([chash/0, index/0, index_as_int/0]).
+
+%% ===================================================================
+%% Public API
+%% ===================================================================
+
+%% =================== RANDOM SLICING ================================
 
 %% @doc Create a size map, based on a basic owner weight list.
 -spec make_size_map(owner_weight_list()) -> size_map().
@@ -182,66 +180,6 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
                         NewOwnerWeights),
     make_size_map2(OldSizeMap2, DiffMap, NewOwnerWeights).
 
-%% @doc Not used directly, but can give a developer an idea of how well
-%% chash_size_map_to_index_list will do for a given value of Max.
-%%
-%% For example:
-%% <verbatim>
-%%     NewSizeMap = make_size_map([{unused, 1.0}],
-%%                                        [{a,100}, {b, 100}, {c, 10}]),
-%%     ChashMap = chash_scale_to_int_interval(NewSizeMap, 100),
-%%     io:format("QQQ: int int = ~p\n", [ChashIntInterval]),
-%% -> [{a,1,47},{b,48,94},{c,94,100}]
-%% </verbatim>
-%%
-%% Interpretation: out of the 100 slots:
-%% <ul>
-%% <li> 'a' uses the slots 1-47 </li>
-%% <li> 'b' uses the slots 48-94 </li>
-%% <li> 'c' uses the slots 95-100 </li>
-%% </ul>
--spec chash_scale_to_int_interval(NewSizeMap ::
-                                      size_map(),
-                                  Max :: integer()) -> [owner_int_range()].
-
-chash_scale_to_int_interval(NewSizeMap, Max) ->
-    chash_scale_to_int_interval(NewSizeMap, 0, Max).
-
-%% @doc Scales the float map to the int interval [0, Max).
--spec chash_scale_to_int_interval(NewSizeMap ::
-                                      size_map(),
-                                  Cur :: integer(),
-                                  Max :: integer()) -> [owner_int_range()].
-
-chash_scale_to_int_interval([{Ch, _Wt}], Cur, Max) ->
-    [{Ch, Cur, Max}];
-chash_scale_to_int_interval([{Ch, Wt} | T], Cur, Max) ->
-    Int = math:round(Wt * (Max / hash:max_integer())),
-    [{Ch, Cur + 1, Cur + Int}
-     | chash_scale_to_int_interval(T, Cur + Int, Max)].
-
-%%%%%%%%%%%%%
-
-%% @doc Make a pretty/human-friendly version of a float map that describes
-%% integer ranges between 1 and `Scale'.
--spec pretty_with_integers(size_map(),
-                           integer()) -> [owner_int_range()].
-
-pretty_with_integers(Map, Scale) ->
-    chash_scale_to_int_interval(Map, Scale).
-
-%% @doc Make a pretty/human-friendly version of a float map (based
-%% upon a float map created from `OldWeights' and `NewWeights') that
-%% describes integer ranges between 1 and `Scale'.
--spec pretty_with_integers(owner_weight_list(),
-                           owner_weight_list(),
-                           integer()) -> [owner_int_range()].
-
-pretty_with_integers(OldWeights, NewWeights, Scale) ->
-    chash_scale_to_int_interval(make_size_map(make_size_map(OldWeights),
-                                              NewWeights),
-                                Scale).
-
 %% @doc Create a float tree, which is the rapid lookup data structure
 %% for consistent hash queries.
 -spec make_tree(size_map()) -> index_tree().
@@ -259,30 +197,6 @@ query_tree(Val, Tree) when is_integer(Val) ->
 query_tree(Val, Tree) ->
     query_tree(hash:as_integer(Val), Tree).
 
-%% @doc Create a human-friendly summary of a size map.
-%%
-%% The two parts of the summary are: a per-owner total of the interval range(s)
-%% owned by each owner, and a total sum of all per-owner ranges (which should be
-%% hash:max_integer() but is not enforced).
--spec sum_map_weights(size_map()) -> {{per_owner,
-                                       size_map()},
-                                      {weight_sum, pos_integer()}}.
-
-sum_map_weights(Map) ->
-    L = sum_map_weights(lists:sort(Map), undefined, 0) --
-          [{undefined, 0}],
-    WeightSum = lists:sum([Weight || {_, Weight} <- L]),
-    {{per_owner, L}, {weight_sum, WeightSum}}.
-
-sum_map_weights([{SZ, Weight} | T], SZ, SZ_total) ->
-    sum_map_weights(T, SZ, SZ_total + Weight);
-sum_map_weights([{SZ, Weight} | T], LastSZ,
-                LastSZ_total) ->
-    [{LastSZ, LastSZ_total} | sum_map_weights(T, SZ,
-                                              Weight)];
-sum_map_weights([], LastSZ, LastSZ_total) ->
-    [{LastSZ, LastSZ_total}].
-
 %% @doc Query a float map with a binary (inefficient).
 -spec hash_binary_via_size_map(binary(),
                                size_map()) -> node_entry().
@@ -298,9 +212,7 @@ hash_binary_via_size_map(Key, Map) ->
 hash_binary_via_index_tree(Key, Tree) ->
     query_tree(hash:as_integer(hash:hash(Key)), Tree).
 
-%% ===================================================================
-%% Public API chash
-%% ===================================================================
+%% =================== CONSISTENT HASHING ============================
 
 %% @doc Return true if named Node owns any partitions in the ring, else false.
 -spec contains_name(Name :: chash_node(),
@@ -309,10 +221,9 @@ hash_binary_via_index_tree(Key, Tree) ->
 contains_name(Name, {SizeMap, _}) ->
     lists:keymember(Name, 2, SizeMap).
 
-%% @doc Create a brand new ring.  The size and seednode are specified;
-%%      initially all partitions are owned by the seednode.  If NumPartitions
-%%      is not much larger than the intended eventual number of
-%%       participating nodes, then performance will suffer.
+%% @doc Create a brand new ring.  The size is irrelevant and only left to be
+%% backwards compatible. Initially the complete ring consists of a single
+%% section owned by the seed node.
 -spec fresh(NumPartitions :: num_partitions(),
             SeedNode :: chash_node()) -> chash().
 
@@ -324,7 +235,7 @@ fresh(_NumPartitions, SeedNode) ->
      stale}.
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
-%% Returns the chash structure to make use of the lookup structure.
+%% Also Return the chash structure to make use of the lookup structure.
 -spec lookup(Index :: index() | index_as_int(),
              CHash :: chash()) -> {chash_node(), chash()}.
 
@@ -526,6 +437,8 @@ update(IndexAsInt, Name, CHash) ->
 %% Internal functions
 %% ====================================================================
 
+%% =================== CONSISTENT HASHING =============================
+
 %% @private
 %% @doc Return either N or the number of partitions in the ring, whichever
 %%      is lesser.
@@ -550,6 +463,8 @@ ordered_from(Index, {Nodes, _} = CHash) ->
                          end,
                          {[], []}, Nodes),
     lists:reverse(B) ++ lists:reverse(A).
+
+%% =================== RANDOM SLICING ================================
 
 %% @private
 %% @doc Assign gaps to nodes and merges neighbouring sections with the same
@@ -737,19 +652,20 @@ update_test() ->
     Node = old@host,
     NewNode = new@host,
     % Create a fresh ring...
-    CHash = chash:fresh(5, Node),
+    CHash = {[{1, Node}, {3, Node}, {4, Node}, {6, Node},
+              {8, Node}],
+             stale},
     GetNthIndex = fun (N, {_, Nodes}) ->
                           {Index, _} = lists:nth(N, Nodes), Index
                   end,
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
-    {5,
-     [{_, NewNode}, {_, Node}, {_, Node}, {_, Node},
-      {_, Node}, {_, Node}]} =
+    {[{_, NewNode}, {_, Node}, {_, Node}, {_, Node},
+      {_, Node}, {_, Node}],
+     _} =
         update(FirstIndex, NewNode, CHash),
-    {5,
-     [{_, Node}, {_, Node}, {_, NewNode}, {_, Node},
+    {[{_, Node}, {_, Node}, {_, NewNode}, {_, Node},
       {_, Node}, {_, Node}]} =
         update(ThirdIndex, NewNode, CHash).
 
@@ -759,17 +675,24 @@ contains_test() ->
     ?assertEqual(false,
                  (contains_name(some_other_node, CHash))).
 
-simple_size_test() ->
-    ?assertEqual(8,
-                 (length(chash:nodes(chash:fresh(8, the_node))))).
+%% Fresh does not use num partitions right now.
+% simple_size_test() ->
+%     ?assertEqual(8,
+%                  (length(chash:nodes(chash:fresh(8, the_node))))).
 
 successors_length_test() ->
+    Node = the_node,
+    CHash = {[{1, Node}, {2, Node}, {3, Node}, {4, Node},
+              {5, Node}, {6, Node}, {7, Node}, {8, Node}],
+             stale},
     ?assertEqual(8,
-                 (length(chash:successors(chash:key_of(0),
-                                          chash:fresh(8, the_node))))).
+                 (length(chash:successors(chash:key_of(0), CHash)))).
 
 inverse_pred_test() ->
-    CHash = chash:fresh(8, the_node),
+    Node = the_node,
+    CHash = {[{1, Node}, {2, Node}, {3, Node}, {4, Node},
+              {5, Node}, {6, Node}, {7, Node}, {8, Node}],
+             stale},
     S = [I
          || {I, _} <- chash:successors(chash:key_of(4), CHash)],
     P = [I
