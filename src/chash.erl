@@ -417,7 +417,9 @@ offsets({IndexList, _}) ->
 -spec predecessors(Index :: index() | index_as_int(),
                    CHash :: chash()) -> [node_entry()].
 
-predecessors(_Index, _CHash) ->
+predecessors(Index, CHash) when not is_integer(Index) ->
+    predecessors(hash:as_integer(Index), CHash);
+predecessors(Index, CHash) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
     %% where and how this is used adaptations need to be done in the affected
@@ -425,14 +427,17 @@ predecessors(_Index, _CHash) ->
     %% Used to
     %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
-    [].
+    predecessors(Index, CHash, chash:size(CHash)).
 
 %% @doc Given an object key, return the next N NodeEntries in reverse order
 %%      starting at Index.
 -spec predecessors(Index :: index() | index_as_int(),
                    CHash :: chash(), N :: integer()) -> [node_entry()].
 
-predecessors(_Index, _CHash, _N) ->
+predecessors(Index, CHash, N)
+    when not is_integer(Index) ->
+    predecessors(hash:as_integer(Index), CHash, N);
+predecessors(Index, CHash, N) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
     %% where and how this is used adaptations need to be done in the affected
@@ -440,7 +445,10 @@ predecessors(_Index, _CHash, _N) ->
     %% Used to
     %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
-    [].
+    Num = max_n(N, CHash),
+    {Res, _} = lists:split(Num,
+                           lists:reverse(ordered_from(Index, CHash))),
+    Res.
 
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
@@ -453,7 +461,6 @@ ring_increment(_NumPartitions) ->
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
     %% Used to
-    %% - find Indices in chash_bin
     %% - determine partition ID in riak_core_ring_util
     %% - To help compute the future ring in riak_core_ring
     %% - Various test scenarios
@@ -468,41 +475,85 @@ size({IndexList, _}) -> lists:size(IndexList).
 -spec successors(Index :: index() | index_as_int(),
                  CHash :: chash()) -> [node_entry()].
 
-successors(_Index, _CHash) ->
+successors(Index, CHash) when not is_integer(Index) ->
+    successors(hash:as_integer(Index), CHash);
+successors(Index, CHash) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
-    %% Used as preflist and to find pairs involved in a repair operation
-    [].
+    %% Used
+    %% - to find pairs involved in a repair operation
+    successors(Index, CHash, chash:size(CHash)).
 
 %% @doc Given an object key, return the next N NodeEntries in order
 %%      starting at Index.
 -spec successors(Index :: index() | index_as_int(),
                  CHash :: chash(), N :: integer()) -> [node_entry()].
 
-successors(_Index, _CHash, _N) ->
+successors(Index, CHash, N)
+    when not is_integer(Index) ->
+    successors(hash:as_integer(Index), CHash, N);
+successors(Index, CHash, N) ->
     %% TODO
     %% Since there is no ring structure there are no predecessors. Depending on
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
-    [].
+    Num = max_n(N, CHash),
+    Ordered = ordered_from(Index, CHash),
+    NumPartitions = chash:size(CHash),
+    if Num =:= NumPartitions -> Ordered;
+       true -> {Res, _} = lists:split(Num, Ordered), Res
+    end.
 
 %% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
 -spec update(IndexAsInt :: index_as_int(),
              Name :: chash_node(), CHash :: chash()) -> chash().
 
-%% Used when resizing the ring, renaming a node, and transferring a node to a
-%% partition. How to abstract from that?
-update(_IndexAsInt, _Name, _CHash) ->
-    {}. %% TODO
+%% TODO
+%% Find usages and adapt them according to implementation in this module.
+%% Used to
+%% - resizing the ring
+%% - renaming a node
+%% - transferring a node to a partition
+update(IndexAsInt, Name, CHash) ->
+    {Nodes, _} = CHash,
+    NewNodes = lists:keyreplace(IndexAsInt, 1, Nodes,
+                                {IndexAsInt, Name}),
+    {NewNodes, stale}.
 
 %% ====================================================================
 %% Internal functions
 %% ====================================================================
 
 %% @private
-%% Assigns gaps to nodes and merges neighbouring sections with the same owner.
+%% @doc Return either N or the number of partitions in the ring, whichever
+%%      is lesser.
+-spec max_n(N :: integer(),
+            CHash :: chash()) -> integer().
+
+max_n(N, CHash) -> erlang:min(N, chash:size(CHash)).
+
+%% @private
+%% @doc Given an object key, return all NodeEntries in order starting at Index.
+-spec ordered_from(Index :: index() | index_as_int(),
+                   CHash :: chash()) -> [node_entry()].
+
+ordered_from(Index, CHash) when not is_integer(Index) ->
+    ordered_from(hash:as_integer(Index), CHash);
+ordered_from(Index, {Nodes, _} = CHash) ->
+    {A, B} = lists:foldl(fun ({I, N}, {L, G}) ->
+                                 case I < Index of
+                                   true -> [{I, N} | L];
+                                   false -> [{I, N} | G]
+                                 end
+                         end,
+                         {[], []}, Nodes),
+    lists:reverse(B) ++ lists:reverse(A).
+
+%% @private
+%% @doc Assign gaps to nodes and merges neighbouring sections with the same
+%% owner.
 -spec make_size_map2(OldSizeMap :: size_map(),
                      DiffMap :: diff_map(),
                      NewOwnerWeights :: owner_weight_list()) -> size_map().
@@ -514,7 +565,7 @@ make_size_map2(OldSizeMap, DiffMap, _NewOwnerWeights) ->
     XX.
 
 %% @private
-%% Adapt the size map according to the given size differences
+%% @doc Adapt the size map according to the given size differences
 -spec apply_diffmap(DiffMap :: diff_map(),
                     SizeMap :: size_map()) -> size_map().
 
@@ -527,7 +578,7 @@ apply_diffmap(DiffMap, SizeMap) ->
     iter_diffmap_add(AddDiff, TmpSizeMap).
 
 %% @private
-%% Sum the weights of all nodes.
+%% @doc Sum the weights of all nodes.
 -spec add_all_weights(OwnerWeights ::
                           owner_weight_list()) -> integer().
 
@@ -537,7 +588,7 @@ add_all_weights(OwnerWeights) ->
                 0, OwnerWeights).
 
 %% @private
-%% Take sections or part of them away from each node such that they own the
+%% @doc Take sections or part of them away from each node such that they own the
 %% desired size.
 -spec iter_diffmap_subtract(DiffMap :: diff_map(),
                             SizeMap :: size_map()) -> size_map().
@@ -548,8 +599,8 @@ iter_diffmap_subtract([{Ch, Diff} | T], SizeMap) ->
 iter_diffmap_subtract([], SizeMap) -> SizeMap.
 
 %% @private
-%% Assign sections or part of them to each node such that they own the desired
-%% size.
+%% @doc Assign sections or part of them to each node such that they own the
+%% desired size.
 -spec iter_diffmap_add(DiffMap :: diff_map(),
                        SizeMap :: size_map()) -> size_map().
 
@@ -559,7 +610,7 @@ iter_diffmap_add([{Ch, Diff} | T], SizeMap) ->
 iter_diffmap_add([], SizeMap) -> SizeMap.
 
 %% @private
-%% Substract the size difference from sections owned by the node until the
+%% @doc Substract the size difference from sections owned by the node until the
 %% desired size is reached.
 -spec apply_diffmap_subtract(chash_node(), integer(),
                              size_map()) -> size_map().
@@ -576,7 +627,7 @@ apply_diffmap_subtract(Ch, Diff, [H | T]) ->
 apply_diffmap_subtract(_Ch, _Diff, []) -> [].
 
 %% @private
-%% Assign unused sections or parts of it to the node until the desired size is
+%% @doc Assign unused sections or parts of it to the node until the desired size is
 %% reached.
 -spec apply_diffmap_add(chash_node(), integer(),
                         size_map()) -> size_map().
@@ -592,7 +643,7 @@ apply_diffmap_add(Ch, Diff, [H | T]) ->
 apply_diffmap_add(_Ch, _Diff, []) -> [].
 
 %% @private
-%% Merge all neighboring sections with the same owner.
+%% @doc Merge all neighboring sections with the same owner.
 -spec combine_neighbors(size_map()) -> size_map().
 
 combine_neighbors([{Ch, Wt1}, {Ch, Wt2} | T]) ->
@@ -602,7 +653,7 @@ combine_neighbors([H | T]) ->
 combine_neighbors([]) -> [].
 
 %% @private
-%% Asign neighboring unused sections to the successor owner.
+%% @doc Asign neighboring unused sections to the successor owner.
 -spec collapse_unused_in_size_map(SizeMap ::
                                       size_map()) -> size_map().
 
@@ -616,7 +667,7 @@ collapse_unused_in_size_map([H | T]) ->
 collapse_unused_in_size_map([]) -> [].
 
 %% @private
-%% Convert a size map to an index list.
+%% @doc Convert a size map to an index list.
 %% An index list contains pairs of index and owner, where the index is the
 %% end of the section owned by the owner, or in the context fo consistent
 %% hashing the place of the node.
@@ -634,7 +685,7 @@ chash_size_map_to_index_list(SizeMap)
     lists:reverse(NFs0).
 
 %% @private
-%% Create a search tree from an index list.
+%% @doc Create a search tree from an index list.
 -spec
      chash_index_list_to_gb_tree(index_list()) -> gb_trees:tree().
 
@@ -652,7 +703,7 @@ chash_index_list_to_gb_tree(IndexList) ->
     gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
 
 %% @private
-%% Query the tree with the key.
+%% @doc Query the tree with the key.
 -spec chash_gb_next(index() | index_as_int(),
                     index_tree()) -> {node_entry()}.
 
@@ -662,7 +713,7 @@ chash_gb_next(X, T) ->
     chash_gb_next(hash:to_integer(X), T).
 
 %% @private
-%% Query a single node of a gb tree.
+%% @doc Query a single node of a gb tree.
 -spec chash_gb_next1(X :: integer(),
                      term()) -> {node_entry()}.
 

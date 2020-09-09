@@ -211,7 +211,7 @@ test_chash() ->
                             chash:make_float_map(FM, WM)
                     end,
                     [], [W0, W1, W2, W3, W4]),
-    {F, stale, W4}.
+    {F, stale}.
 
 is_deterministic(Mode) ->
     CHash = test_chash(),
