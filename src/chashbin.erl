@@ -213,9 +213,9 @@ iterator(HashKey, CHBin) ->
 itr_value(#iterator{pos = Pos,
                     chbin = #chashbin{owners = Bin, nodes = Nodes}}) ->
     BitSize = hash:out_size(),
-    %% WARN not sure how to handle binary-unit size here
-    <<_:Pos/binary-unit:176, Idx:BitSize/integer,
-      Id:16/integer, _/binary>> =
+    EntryBytes = (BitSize + 16) div 8,
+    <<_:(Pos * EntryBytes)/binary-unit:8,
+      Idx:BitSize/integer, Id:16/integer, _/binary>> =
         Bin,
     Owner = element(Id, Nodes),
     {Idx, Owner}.
@@ -240,20 +240,19 @@ itr_next(Itr = #iterator{pos = Pos, start = Start,
 
 itr_pop(N, Itr = #iterator{pos = Pos, chbin = CHBin}) ->
     BitSize = hash:out_size(),
+    EntryBytes = (BitSize + 16) div 8,
     #chashbin{size = Size, owners = Bin, nodes = Nodes} =
         CHBin,
     L = case Bin of
-          %% WARN not sure how to handle size of the binary-unit here
-          <<_:Pos/binary-unit:176, Bin2:N/binary-unit:176,
-            _/binary>> ->
+          <<_:(Pos * EntryBytes)/binary-unit:8,
+            Bin2:(N * EntryBytes)/binary-unit:8, _/binary>> ->
               [{Idx, element(Id, Nodes)}
                || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2];
           _ ->
               Left = N + Pos - Size,
               Skip = Pos - Left,
-              %% WARN not sure how to handle size of the binary-unit here
-              <<Bin3:Left/binary-unit:176, _:Skip/binary-unit:176,
-                Bin2/binary>> =
+              <<Bin3:(Left * EntryBytes)/binary-unit:8,
+                _:(Skip * EntryBytes)/binary-unit:8, Bin2/binary>> =
                   Bin,
               L1 = [{Idx, element(Id, Nodes)}
                     || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2],

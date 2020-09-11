@@ -454,7 +454,7 @@ max_n(N, CHash) -> erlang:min(N, chash:size(CHash)).
 
 ordered_from(Index, CHash) when not is_integer(Index) ->
     ordered_from(hash:as_integer(Index), CHash);
-ordered_from(Index, {Nodes, _} = CHash) ->
+ordered_from(Index, {Nodes, _}) ->
     {A, B} = lists:foldl(fun ({I, N}, {L, G}) ->
                                  case I < Index of
                                    true -> [{I, N} | L];
