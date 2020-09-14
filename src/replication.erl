@@ -20,8 +20,8 @@
 
 -type node_entry() :: chash:node_entry().
 
--spec replicate(Key :: index(),
-                CHash :: chash()) -> {[node_entry()], chash()}.
+-define(REPLICATION,
+        application:get_env(riak_core, replication, random)).
 
 %% @doc Constructs the preference list according to the algorithm set in the
 %% riak_core:replication configuration key or random by defualt.
@@ -30,10 +30,11 @@
 %% the segment lengths in the ring
 %% -incremental: rotate the key around the ring with the step lengths depending
 %% on the segment the key currently belongs to
+-spec replicate(Key :: index(),
+                CHash :: chash()) -> {[node_entry()], chash()}.
+
 replicate(Key, CHash) ->
-    replicate(application:getenv(riak_core, replication,
-                                 random),
-              Key, CHash).
+    replicate(?REPLICATION, Key, CHash).
 
 %% @doc Constructs the preference list according to the given algorithm:
 %% -random: draw random bins until enough are drawn
@@ -78,10 +79,7 @@ random(CHash, N, PrefList) ->
           {Node, CHash2} =
               chash:lookup_node_entry(hash:as_integer(rand:uniform()),
                                       CHash),
-          NPref = case lists:member(Node, PrefList) of
-                    true -> PrefList;
-                    false -> [Node | PrefList]
-                  end,
+          NPref = update_preflist(Node, PrefList),
           random(CHash2, N, NPref)
     end.
 
@@ -116,7 +114,7 @@ rotation(Key, CHash, N, Offsets, NextOffsets, PrefList,
           [Offset | Rest] = Offsets,
           %% WARN potential rounding errors
           %% need to look into a more sophisticated creation of subsections
-          Step = math:round(Offset / math:pow(2, I)),
+          Step = max(1, round(Offset / math:pow(2, I))),
           {{NKey, NPref}, NCHash} = step(Key, CHash, Step,
                                          PrefList),
           {{NNKey, NNPref}, NNCHash} = rotate(NKey, NCHash,
@@ -171,10 +169,7 @@ increment(Key, Offset) ->
 step(Key, CHash, Offset, PrefList) ->
     NKey = increment(Key, Offset),
     {Node, CHash2} = chash:lookup_node_entry(NKey, CHash),
-    NPref = case lists:member(Node, PrefList) of
-              true -> PrefList;
-              false -> [Node | PrefList]
-            end,
+    NPref = update_preflist(Node, PrefList),
     {{NKey, NPref}, CHash2}.
 
 %% @private
@@ -191,32 +186,40 @@ rotate(Key, CHash, Offset, PrefList, I) ->
                 end,
                 {{Key, PrefList}, CHash}, C).
 
-%% =============================================================================
-%% EUNIT TESTS
-%% =============================================================================
+%% @private
+%% Add the entry to the pref list if the owning node is not in it.
+-spec update_preflist(node_entry(),
+                      [node_entry()]) -> [node_entry()].
+
+update_preflist({_, N} = Node, Pref) ->
+    case lists:keymember(N, 2, Pref) of
+      true -> Pref;
+      false -> [Node | Pref]
+    end.
+
+%% ===================================================================
+%% EUnit tests
+%% ===================================================================
 
 -ifdef(TEST).
 
--define(TEST_KEY, 3 bsl 157).
+-define(TEST_KEY,
+        hash:as_integer(hash:hash(term_to_binary(42)))).
 
 test_chash() ->
-    W0 = [{node0, 100}],
-    W1 = [{node0, 100}, {node1, 100}],
-    W2 = [{node0, 100}, {node1, 100}, {node2, 100}],
-    W3 = [{node0, 100}, {node1, 100}, {node2, 100},
-          {node3, 100}],
-    W4 = [{node0, 100}, {node1, 100}, {node2, 100},
-          {node3, 150}],
-    F = lists:foldl(fun (WM, FM) ->
-                            chash:make_float_map(FM, WM)
-                    end,
-                    [], [W0, W1, W2, W3, W4]),
-    {F, stale}.
+    Denominator = 36,
+    F = [{8, node0}, {12, node3}, {14, node2}, {18, node3},
+         {26, node1}, {30, node3}, {36, node2}],
+    {lists:map(fun ({I, N}) ->
+                       {hash:as_integer(I / Denominator), N}
+               end,
+               F),
+     stale}.
 
 is_deterministic(Mode) ->
     CHash = test_chash(),
-    {PrefList, Chash2} = replicate(Mode, ?TEST_KEY, CHash),
-    lists:all(fun (_I) ->
+    {PrefList, CHash2} = replicate(Mode, ?TEST_KEY, CHash),
+    lists:all(fun (_) ->
                       {PrefList2, _} = replicate(Mode, ?TEST_KEY, CHash2),
                       PrefList2 == PrefList
               end,
@@ -231,7 +234,7 @@ is_complete(Mode) ->
 is_unique(Mode) ->
     CHash = test_chash(),
     {PrefList, _} = replicate(Mode, ?TEST_KEY, CHash),
-    PrefNodes = [N || {I, N} <- PrefList],
+    PrefNodes = [N || {_I, N} <- PrefList],
     length(PrefList) ==
       sets:size(sets:from_list(PrefNodes)).
 

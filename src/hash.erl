@@ -9,7 +9,8 @@
 %% Used to emphasize that the float value should be within [0.0, 1.0).
 -type unit() :: float().
 
--define(HASH, application:getenv(riak_core, hash, sha)).
+-define(HASH,
+        application:get_env(riak_core, hash, sha)).
 
 -export([hash/1, as_integer/1, as_binary/1, as_unit/1,
          max_integer/0, out_size/0]).

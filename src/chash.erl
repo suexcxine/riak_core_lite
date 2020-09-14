@@ -173,8 +173,8 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
     DiffMap = lists:map(fun ({Ch, NewWt}) ->
                                 case orddict:find(Ch, SumOldSizeDict) of
                                   {ok, OldWt} ->
-                                      {Ch, math:round(Factor * NewWt) - OldWt};
-                                  error -> {Ch, math:round(Factor * NewWt)}
+                                      {Ch, math:trunc(Factor * NewWt) - OldWt};
+                                  error -> {Ch, round(Factor * NewWt)}
                                 end
                         end,
                         NewOwnerWeights),
@@ -380,7 +380,7 @@ ring_increment(_NumPartitions) ->
 %% @doc Return the number of partitions in the ring.
 -spec size(CHash :: chash()) -> integer().
 
-size({IndexList, _}) -> lists:size(IndexList).
+size({IndexList, _}) -> length(IndexList).
 
 %% @doc Given an object key, return all NodeEntries in order starting at Index.
 -spec successors(Index :: index() | index_as_int(),
@@ -457,8 +457,8 @@ ordered_from(Index, CHash) when not is_integer(Index) ->
 ordered_from(Index, {Nodes, _}) ->
     {A, B} = lists:foldl(fun ({I, N}, {L, G}) ->
                                  case I < Index of
-                                   true -> [{I, N} | L];
-                                   false -> [{I, N} | G]
+                                   true -> {[{I, N} | L], G};
+                                   false -> {L, [{I, N} | G]}
                                  end
                          end,
                          {[], []}, Nodes),
@@ -655,18 +655,19 @@ update_test() ->
     CHash = {[{1, Node}, {3, Node}, {4, Node}, {6, Node},
               {8, Node}],
              stale},
-    GetNthIndex = fun (N, {_, Nodes}) ->
+    GetNthIndex = fun (N, {Nodes, _}) ->
                           {Index, _} = lists:nth(N, Nodes), Index
                   end,
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
     {[{_, NewNode}, {_, Node}, {_, Node}, {_, Node},
-      {_, Node}, {_, Node}],
+      {_, Node}],
      _} =
         update(FirstIndex, NewNode, CHash),
     {[{_, Node}, {_, Node}, {_, NewNode}, {_, Node},
-      {_, Node}, {_, Node}]} =
+      {_, Node}],
+     _} =
         update(ThirdIndex, NewNode, CHash).
 
 contains_test() ->
@@ -685,8 +686,7 @@ successors_length_test() ->
     CHash = {[{1, Node}, {2, Node}, {3, Node}, {4, Node},
               {5, Node}, {6, Node}, {7, Node}, {8, Node}],
              stale},
-    ?assertEqual(8,
-                 (length(chash:successors(chash:key_of(0), CHash)))).
+    ?assertEqual(8, (length(chash:successors(0, CHash)))).
 
 inverse_pred_test() ->
     Node = the_node,

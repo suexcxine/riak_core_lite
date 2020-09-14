@@ -387,9 +387,9 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    [{hash:as_integer(I), N}
-     || {I, N}
-            <- replication:replicate(Key, State#chstate.chring)].
+    {PrefList, _CHash2} = replication:replicate(Key,
+                                                State#chstate.chring),
+    [{hash:as_integer(I), N} || {I, N} <- PrefList].
 
 %% @doc Return a randomly-chosen node from amongst the owners.
 -spec random_node(State :: chstate()) -> Node :: term().

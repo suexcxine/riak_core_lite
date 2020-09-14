@@ -287,6 +287,10 @@ apl_with_partition_nums(Apl, Size) ->
       Ann}
      || {{Hash, Node}, Ann} <- Apl].
 
+%% ===================================================================
+%% EUnit tests
+%% ===================================================================
+
 -ifdef(TEST).
 
 smallest_test() ->
@@ -340,8 +344,7 @@ perfect_ring(RingSize, Nodes)
                                    {Ring, Nodes}, Owners),
     PerfectRing.
 
-last_in_ring() ->
-    hash:as_binary(hash:max_integer() - 1).
+last_in_ring() -> hash:as_binary(hash:max_integer()).
 
 six_node_test() ->
     %% its non-trivial to create a real 6 node ring, so here's one we made
