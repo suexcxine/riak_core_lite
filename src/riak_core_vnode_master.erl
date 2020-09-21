@@ -92,9 +92,9 @@ command2([], _Msg, _Sender, _VMaster, _How) -> ok;
 command2([{Index, Pid} | Rest], Msg, Sender, VMaster,
          How = normal)
     when is_pid(Pid) ->
-        Request= make_request(Msg, Sender, Index),
-        riak_core_vnode:send_req(Pid, Request),
-        command2(Rest, Msg, Sender, VMaster, How);
+    Request = make_request(Msg, Sender, Index),
+    riak_core_vnode:send_req(Pid, Request),
+    command2(Rest, Msg, Sender, VMaster, How);
 command2([{Index, Pid} | Rest], Msg, Sender, VMaster,
          How = unreliable)
     when is_pid(Pid) ->
@@ -264,9 +264,9 @@ handle_call(Req = #riak_vnode_req_v1{index = Idx,
             From, State = #state{vnode_mod = Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     riak_core_vnode:send_req(Proxy,
-                              Req#riak_vnode_req_v1{sender =
-                                                        {server, undefined,
-                                                         From}}),
+                             Req#riak_vnode_req_v1{sender =
+                                                       {server, undefined,
+                                                        From}}),
     {noreply, State};
 handle_call({spawn,
              Req = #riak_vnode_req_v1{index = Idx,
@@ -275,7 +275,8 @@ handle_call({spawn,
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     Sender = {server, undefined, From},
     spawn_link(fun () ->
-                        riak_core_vnode:send_all_proxy_req(Proxy, Req#riak_vnode_req_v1{sender
+                       riak_core_vnode:send_all_proxy_req(Proxy,
+                                                          Req#riak_vnode_req_v1{sender
                                                                                     =
                                                                                     Sender})
                end),

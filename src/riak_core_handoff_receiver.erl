@@ -130,7 +130,8 @@ process_message(?PT_MSG_BATCH, MsgData, State) ->
 process_message(?PT_MSG_OBJ, MsgData,
                 State = #state{vnode = VNode, count = Count,
                                vnode_timeout_len = VNodeTimeout}) ->
-    try riak_core_vnode:handoff_data(VNode, MsgData, VNodeTimeout)
+    try riak_core_vnode:handoff_data(VNode, MsgData,
+                                     VNodeTimeout)
     of
       ok -> State#state{count = Count + 1};
       E = {error, _} -> exit(E)

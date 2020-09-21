@@ -240,9 +240,9 @@ start_fold_(TargetNode, Module, Type, Opts, ParentPid,
           case Type of
             repair -> ok;
             resize ->
-                riak_core_vnode:resize_transfer_complete(ParentPid, NotSentAcc);
-            _ ->
-                riak_core_vnode:handoff_complete(ParentPid)
+                riak_core_vnode:resize_transfer_complete(ParentPid,
+                                                         NotSentAcc);
+            _ -> riak_core_vnode:handoff_complete(ParentPid)
           end;
       {error, ErrReason} ->
           if ErrReason == timeout -> exit({shutdown, timeout});
@@ -269,12 +269,14 @@ start_fold(TargetNode, Module, {Type, Opts},
           exit({shutdown, timeout});
       exit:{shutdown, {error, Reason}} ->
           ?LOG_FAIL("because of ~p", [Reason]),
-          riak_core_vnode:handoff_error(ParentPid, fold_error, Reason),
+          riak_core_vnode:handoff_error(ParentPid, fold_error,
+                                        Reason),
           exit({shutdown, {error, Reason}});
       {be_quiet, Err, Reason} ->
           riak_core_vnode:handoff_error(ParentPid, Err, Reason);
       Err:Reason:Stacktrace ->
-          ?LOG_FAIL("because of ~p:~p ~p", [Err, Reason, Stacktrace]),
+          ?LOG_FAIL("because of ~p:~p ~p",
+                    [Err, Reason, Stacktrace]),
           riak_core_vnode:handoff_error(ParentPid, Err, Reason)
     end.
 
