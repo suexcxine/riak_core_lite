@@ -424,13 +424,11 @@ overload_test_() ->
                         Reply = gen:call(ProxyPid, '$vnode_proxy_call', sync,
                                          infinity),
                         ?assertEqual({ok, ok}, Reply),
-                        %% check that the outstanding message count is
-                        %% reasonable
+                        %% check that the outstanding message count is reasonable
                         {message_queue_len, L} = erlang:process_info(VnodePid,
                                                                      message_queue_len),
-                        %% Threshold + 2 unanswered vnode_proxy_ping (one
-                        %% for first ping, second after process_info check)
-                        ?assert((L =< (?DEFAULT_OVERLOAD_THRESHOLD) + 2))
+                        %% Threshold + (at most) 10 unanswered vnode_proxy_ping
+                        ?assert((L =< (?DEFAULT_OVERLOAD_THRESHOLD) + 10))
                 end}
        end]}}.
 
