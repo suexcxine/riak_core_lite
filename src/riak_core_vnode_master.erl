@@ -221,7 +221,7 @@ do_proxy_cast({VMaster, Node},
     ok.
 
 send_an_event(Dest, Event, normal) ->
-    riak_core_vnode:send_an_event(Dest, Event);
+    riak_core_vnode:send_req(Dest, Event);
 send_an_event(Dest, Event, unreliable) ->
     riak_core_send_msg:send_event_unreliable(Dest, Event).
 

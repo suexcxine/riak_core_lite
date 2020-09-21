@@ -36,7 +36,6 @@
          trigger_delete/1, core_status/1, handoff_error/3]).
 
 -export([cast_finish_handoff/1,
-         send_an_event/2,
          send_req/2,
          send_all_proxy_req/2,
          cancel_handoff/1,
@@ -373,10 +372,6 @@ cancel_handoff(VNode) ->
 
 %% # - riak_core_vnode_master - command2
 %send_req
-
-%% # - riak_core_vnode_master - send_an_event
-send_an_event(VNode, Event)->
-    gen_fsm_compat:send_event(VNode, Event).
 
 %% # - riak_core_vnode_master - handle_cast/handle_call
 send_req(VNode, Req)->
