@@ -165,7 +165,7 @@ loop(Parent, State) ->
 %% @private
 handle_call({return_vnode, Req}, _From, State) ->
     {Pid, NewState} = get_vnode_pid(State),
-    gen_fsm_compat:send_event(Pid, Req),
+    riak_core_vnode:send_req(Pid, Req),
     {reply, {ok, Pid}, NewState};
 handle_call(overloaded, _From,
             State = #state{check_mailbox = Mailbox,
@@ -177,7 +177,7 @@ handle_call(_Msg, _From, State) -> {reply, ok, State}.
 handle_cast({unregister_vnode, Pid}, State) ->
     %% The pid may not match the vnode_pid in the state, but we must send the
     %% unregister event anyway -- the vnode manager requires it.
-    gen_fsm_compat:send_event(Pid, unregistered),
+    riak_core_vnode:unregistered(Pid),
     catch demonitor(State#state.vnode_mref, [flush]),
     NewState = forget_vnode(State),
     {noreply, NewState};
@@ -424,13 +424,11 @@ overload_test_() ->
                         Reply = gen:call(ProxyPid, '$vnode_proxy_call', sync,
                                          infinity),
                         ?assertEqual({ok, ok}, Reply),
-                        %% check that the outstanding message count is
-                        %% reasonable
+                        %% check that the outstanding message count is reasonable
                         {message_queue_len, L} = erlang:process_info(VnodePid,
                                                                      message_queue_len),
-                        %% Threshold + 2 unanswered vnode_proxy_ping (one
-                        %% for first ping, second after process_info check)
-                        ?assert((L =< (?DEFAULT_OVERLOAD_THRESHOLD) + 2))
+                        %% Threshold + (at most) 10 unanswered vnode_proxy_ping
+                        ?assert((L =< (?DEFAULT_OVERLOAD_THRESHOLD) + 10))
                 end}
        end]}}.
 
