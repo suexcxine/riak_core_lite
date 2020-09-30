@@ -39,8 +39,8 @@
 %%
 %% To alleviate the slow down while in the ETS phase, `riak_core'
 %% exploits the fact that most time sensitive operations access the ring
-%% in order to read only a subset of its data: bucket properties and
-%% partition ownership. Therefore, these pieces of information are
+%% in order to read only a subset of its data: partition ownership.
+%% Therefore, these pieces of information are
 %% extracted from the ring and stored in the ETS table as well to
 %% minimize copying overhead. Furthermore, the partition ownership
 %% information (represented by the {@link chash} structure) is converted
@@ -223,8 +223,7 @@ do_write_ringfile(Ring) ->
           TS =
               io_lib:format(".~B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
                             [Year, Month, Day, Hour, Minute, Second]),
-          Cluster = application:get_env(riak_core, cluster_name,
-                                        undefined),
+          {ok, Cluster} = application:get_env(riak_core, cluster_name),
           FN = Dir ++ "/riak_core_ring." ++ Cluster ++ TS,
           do_write_ringfile(Ring, FN)
     end.
@@ -245,8 +244,7 @@ find_latest_ringfile() ->
     Dir = ring_dir(),
     case file:list_dir(Dir) of
       {ok, Filenames} ->
-          Cluster = application:get_env(riak_core, cluster_name,
-                                        undefined),
+          {ok, Cluster} = application:get_env(riak_core, cluster_name),
           Timestamps = [list_to_integer(TS)
                         || {"riak_core_ring", C1, TS}
                                <- [list_to_tuple(string:tokens(FN, "."))
@@ -546,43 +544,44 @@ reset_ring_id() ->
 %% to make test setup simpler - no need to spin up a riak_core_ring_manager
 %% process.
 set_ring_global(Ring) ->
-    DefaultProps = case application:get_env(riak_core,
-                                            default_bucket_props)
-                       of
-                     {ok, Val} -> Val;
-                     _ -> []
-                   end,
-    %% run fixups on the ring before storing it in persistent_term
-    FixedRing = case riak_core:bucket_fixups() of
-                  [] -> Ring;
-                  Fixups ->
-                      Buckets = riak_core_ring:get_buckets(Ring),
-                      lists:foldl(fun (Bucket, AccRing) ->
-                                          BucketProps =
-                                              riak_core_bucket:get_bucket(Bucket,
-                                                                          Ring),
-                                          %% Merge anything in the default properties but not in
-                                          %% the bucket's properties. This is to ensure default
-                                          %% properties added after the bucket is created are
-                                          %% inherited to the bucket.
-                                          MergedProps =
-                                              riak_core_bucket:merge_props(BucketProps,
-                                                                           DefaultProps),
-                                          %% fixup the ring
-                                          NewBucketProps = run_fixups(Fixups,
-                                                                      Bucket,
-                                                                      MergedProps),
-                                          %% update the bucket in the ring
-                                          riak_core_ring:update_meta({bucket,
-                                                                      Bucket},
-                                                                     NewBucketProps,
-                                                                     AccRing)
-                                  end,
-                                  Ring, Buckets)
-                end,
+    %% TODO REMOVE
+%%    DefaultProps = case application:get_env(riak_core,
+%%                                            default_bucket_props)
+%%                       of
+%%                     {ok, Val} -> Val;
+%%                     _ -> []
+%%                   end,
+%%    %% run fixups on the ring before storing it in persistent_term
+%%    FixedRing = case riak_core:bucket_fixups() of
+%%                  [] -> Ring;
+%%                  Fixups ->
+%%                      Buckets = riak_core_ring:get_buckets(Ring),
+%%                      lists:foldl(fun (Bucket, AccRing) ->
+%%                                          BucketProps =
+%%                                              riak_core_bucket:get_bucket(Bucket,
+%%                                                                          Ring),
+%%                                          %% Merge anything in the default properties but not in
+%%                                          %% the bucket's properties. This is to ensure default
+%%                                          %% properties added after the bucket is created are
+%%                                          %% inherited to the bucket.
+%%                                          MergedProps =
+%%                                              riak_core_bucket:merge_props(BucketProps,
+%%                                                                           DefaultProps),
+%%                                          %% fixup the ring
+%%                                          NewBucketProps = run_fixups(Fixups,
+%%                                                                      Bucket,
+%%                                                                      MergedProps),
+%%                                          %% update the bucket in the ring
+%%                                          riak_core_ring:update_meta({bucket,
+%%                                                                      Bucket},
+%%                                                                     NewBucketProps,
+%%                                                                     AccRing)
+%%                                  end,
+%%                                  Ring, Buckets)
+%%                end,
     %% Mark ring as tainted to check if it is ever leaked over gossip or
     %% relied upon for any non-local ring operations.
-    TaintedRing = riak_core_ring:set_tainted(FixedRing),
+    TaintedRing = riak_core_ring:set_tainted(Ring),
     %% Extract bucket properties and place into ETS table. We want all bucket
     %% additions, modifications, and deletions to appear in a single atomic
     %% operation. Since ETS does not provide a means to change + delete
@@ -590,25 +589,29 @@ set_ring_global(Ring) ->
     %% overwriting all deleted buckets with the "undefined" atom that has
     %% special meaning in `riak_core_bucket:get_bucket_props/2`. We then
     %% cleanup these values in a subsequent `ets:match_delete`.
-    OldBuckets = ets:select(?ETS,
-                            [{{{bucket, '$1'}, '_'}, [], ['$1']}]),
-    BucketDefaults = [{{bucket, Bucket}, undefined}
-                      || Bucket <- OldBuckets],
-    BucketMeta = [{{bucket, Bucket}, Meta}
-                  || Bucket <- riak_core_ring:get_buckets(TaintedRing),
-                     {ok, Meta}
-                         <- [riak_core_ring:get_meta({bucket, Bucket},
-                                                     TaintedRing)]],
-    BucketMeta2 = lists:ukeysort(1,
-                                 BucketMeta ++ BucketDefaults),
+    %% TODO REMOVE
+%%    OldBuckets = ets:select(?ETS,
+%%                            [{{{bucket, '$1'}, '_'}, [], ['$1']}]),
+%%    BucketDefaults = [{{bucket, Bucket}, undefined}
+%%                      || Bucket <- OldBuckets],
+%%    BucketMeta = [{{bucket, Bucket}, Meta}
+%%                  || Bucket <- riak_core_ring:get_buckets(TaintedRing),
+%%                     {ok, Meta}
+%%                         <- [riak_core_ring:get_meta({bucket, Bucket},
+%%                                                     TaintedRing)]],
+%%    BucketMeta2 = lists:ukeysort(1,
+%%                                 BucketMeta ++ BucketDefaults),
     CHBin =
         chashbin:create(riak_core_ring:chash(TaintedRing)),
     {Epoch, Id} = ets:lookup_element(?ETS, id, 2),
     Actions = [{ring, TaintedRing}, {raw_ring, Ring},
                {id, {Epoch, Id + 1}}, {chashbin, CHBin}
-               | BucketMeta2],
+        %% TODO REMOVE
+%%               | BucketMeta2
+    ],
     ets:insert(?ETS, Actions),
-    ets:match_delete(?ETS, {{bucket, '_'}, undefined}),
+    %% TODO REMOVE
+%%    ets:match_delete(?ETS, {{bucket, '_'}, undefined}),
     case persistent_term:get(?RING_KEY, undefined) of
       ets -> ok;
       _ -> persistent_term:put(?RING_KEY, ets)
@@ -735,13 +738,14 @@ stop_core_processes() ->
 -define(TMP_RINGFILE, (?TEST_RINGFILE) ++ ".tmp").
 
 do_write_ringfile_test() ->
+    application:set_env(riak_core, cluster_name, "test"),
     %% Make sure no data exists from previous runs
     file:change_mode(?TMP_RINGFILE, 8#00644),
     file:delete(?TMP_RINGFILE),
     %% Check happy path
     GenR = fun (Name) -> riak_core_ring:fresh(64, Name) end,
     ?assertEqual(ok,
-                 (do_write_ringfile(GenR(happy), ?TEST_RINGFILE))),
+                 (do_write_ringfile(GenR(happy)))),
     %% errors expected
     error_logger:tty(false),
     %% Check write fails (create .tmp file with no write perms)
