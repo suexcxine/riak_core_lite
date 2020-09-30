@@ -366,7 +366,7 @@ preflist(Key, State) ->
 
 random_node(State) ->
     L = all_members(State),
-    lists:nth(riak_core_rand:uniform(length(L)), L).
+    lists:nth(rand:uniform(length(L)), L).
 
 %% @doc Return a partition index not owned by the node executing this function.
 %%      If this node owns all partitions, return any index.
@@ -379,7 +379,7 @@ random_other_index(State) ->
             Owner =/= node()],
     case L of
       [] -> hd(my_indices(State));
-      _ -> lists:nth(riak_core_rand:uniform(length(L)), L)
+      _ -> lists:nth(rand:uniform(length(L)), L)
     end.
 
 -spec random_other_index(State :: chstate(),
@@ -393,7 +393,7 @@ random_other_index(State, Exclude)
             Owner =/= node(), not lists:member(I, Exclude)],
     case L of
       [] -> no_indices;
-      _ -> lists:nth(riak_core_rand:uniform(length(L)), L)
+      _ -> lists:nth(rand:uniform(length(L)), L)
     end.
 
 %% @doc Return a randomly-chosen node from amongst the owners other than this one.
@@ -403,7 +403,7 @@ random_other_index(State, Exclude)
 random_other_node(State) ->
     case lists:delete(node(), all_members(State)) of
       [] -> no_node;
-      L -> lists:nth(riak_core_rand:uniform(length(L)), L)
+      L -> lists:nth(rand:uniform(length(L)), L)
     end.
 
 %% @doc Return a randomly-chosen active node other than this one.
@@ -413,7 +413,7 @@ random_other_node(State) ->
 random_other_active_node(State) ->
     case lists:delete(node(), active_members(State)) of
       [] -> no_node;
-      L -> lists:nth(riak_core_rand:uniform(length(L)), L)
+      L -> lists:nth(rand:uniform(length(L)), L)
     end.
 
 %% @doc Incorporate another node's state into our view of the Riak world.

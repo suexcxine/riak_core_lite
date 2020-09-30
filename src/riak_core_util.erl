@@ -60,9 +60,6 @@
 
 -endif.
 
--type
-     riak_core_ring() :: riak_core_ring:riak_core_ring().
-
 -type index() :: non_neg_integer().
 
 -type index_n() :: {index(), pos_integer()}.
@@ -119,7 +116,7 @@ rfc1123_to_now(String) when is_list(String) ->
 %%      to the new directory.
 make_tmp_dir() ->
     TmpId = io_lib:format("riptemp.~p",
-                          [erlang:phash2({riak_core_rand:uniform(), self()})]),
+                          [erlang:phash2({rand:uniform(), self()})]),
     TempDir = filename:join("/tmp", TmpId),
     case filelib:is_dir(TempDir) of
       true -> make_tmp_dir();
@@ -604,7 +601,7 @@ orddict_delta(A, B) ->
 
 shuffle(L) ->
     N = 134217727, %% Largest small integer on 32-bit Erlang
-    L2 = [{riak_core_rand:uniform(N), E} || E <- L],
+    L2 = [{rand:uniform(N), E} || E <- L],
     L3 = [E || {_, E} <- lists:sort(L2)],
     L3.
 
