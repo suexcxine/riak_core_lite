@@ -160,7 +160,7 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
     OldChs = [Ch || {Ch, _} <- OldOwnerWeights],
     NewChs = [Ch || {Ch, _} <- NewOwnerWeights],
     OldChsOnly = OldChs -- NewChs,
-    %% Mark any space in by a deleted owner as unused.
+    %% Mark any space by a deleted owner as unused.
     OldSizeMap2 = lists:map(fun ({Ch, Wt} = ChWt) ->
                                     case lists:member(Ch, OldChsOnly) of
                                       true -> {unused, Wt};
@@ -187,8 +187,8 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
 make_tree(Map) ->
     chash_index_list_to_gb_tree(chash_size_map_to_index_list(Map)).
 
-%% @doc Low-level function for querying a float tree: the (floating
-%% point) point within the unit interval.
+%% @doc Low-level function for querying a size tree: the (integer) point within
+%% the hash space.
 -spec query_tree(index() | index_as_int(),
                  index_tree()) -> {node_entry()}.
 
@@ -197,7 +197,7 @@ query_tree(Val, Tree) when is_integer(Val) ->
 query_tree(Val, Tree) ->
     query_tree(hash:as_integer(Val), Tree).
 
-%% @doc Query a float map with a binary (inefficient).
+%% @doc Query an index map with a binary (inefficient).
 -spec hash_binary_via_size_map(binary(),
                                size_map()) -> node_entry().
 
@@ -298,30 +298,18 @@ nodes(CHash) -> {NextList, _} = CHash, NextList.
 -spec node_size(Index :: index(),
                 CHash :: chash()) -> index().
 
-node_size(Index, {NextList, _Tree}) ->
-    {Size, _} = lists:foldl(fun ({I, _}, {Start, Done}) ->
-                                    case Done of
-                                      true -> {Start, true};
-                                      false ->
-                                          case (Index >= Start) and (Index < I)
-                                              of
-                                            true -> {I - Start, true};
-                                            false -> {I, false}
-                                          end
-                                    end
-                            end,
-                            {0.0, false}, NextList),
-    Size.
+node_size(Index, {IndexList, _Tree}) ->
+    node_size(Index, IndexList, 0).
 
 %% @doc Return a list of section sizes as integers.
 -spec offsets(CHash :: chash()) -> [index_as_int()].
 
-offsets({IndexList, _}) ->
-    {Offsets, _} = lists:foldl(fun ({I, _N}, {O, C}) ->
-                                       {[I - C | O], I}
-                               end,
-                               {[], 0}, IndexList),
-    lists:reverse(Offsets).
+offsets({[_H | IndexList], _}) ->
+    {Offsets, Start} = lists:foldl(fun ({I, _N}, {O, C}) ->
+                                           {[I - C | O], I}
+                                   end,
+                                   {[], 0}, IndexList),
+    lists:reverse([hash:max_integer() - Start | Offsets]).
 
 %% @doc Given an object key, return all NodeEntries in reverse order
 %%      starting at Index.
@@ -464,6 +452,22 @@ ordered_from(Index, {Nodes, _}) ->
                          {[], []}, Nodes),
     lists:reverse(B) ++ lists:reverse(A).
 
+%% @private
+%% @doc Helper function to find the node size. Assumes that the IndexList is
+%% ordered by index and the first entry has index 0.
+-spec node_size(Index :: index(),
+                IndexList :: index_list(),
+                Start :: index()) -> integer().
+
+node_size(_Index, [], Start) ->
+    %% Index in last section
+    hash:max_integer() - Start;
+node_size(Index, [{I, _} | T], Start) ->
+    case Index < I of
+      true -> I - Start;
+      false -> node_size(Index, T, I)
+    end.
+
 %% =================== RANDOM SLICING ================================
 
 %% @private
@@ -591,10 +595,9 @@ collapse_unused_in_size_map([]) -> [].
 
 chash_size_map_to_index_list(SizeMap)
     when length(SizeMap) > 0 ->
-    {_Sum, NFs0} = lists:foldl(fun ({Name, Amount},
+    {_Sum, NFs0} = lists:foldl(fun ({Name, Size},
                                     {Sum, List}) ->
-                                       {Sum + Amount,
-                                        [{Sum + Amount, Name} | List]}
+                                       {Sum + Size, [{Sum, Name} | List]}
                                end,
                                {0, []}, SizeMap),
     lists:reverse(NFs0).
@@ -608,40 +611,47 @@ chash_index_list_to_gb_tree([]) ->
     gb_trees:balance(gb_trees:from_orddict([]));
 chash_index_list_to_gb_tree(IndexList) ->
     %% Is this still needed with integer?
-    {Index, Name} = lists:last(IndexList),
+    %% SHould not be necessary because first node is always at 0 and covers
+    %% that case.
+    % {Index, Name} = lists:last(IndexList),
     %% QuickCheck found a bug ... it really helps to add a catch-all item
     %% at the far "right" of the list ... 42.0 is much greater than 1.0.
-    NFs = case Index < hash:max_integer() of
-            true -> IndexList ++ [{hash:max_integer(), Name}];
-            false -> IndexList
-          end,
-    gb_trees:balance(gb_trees:from_orddict(orddict:from_list(NFs))).
+    % NFs = case Index < hash:max_integer() of
+    %         true -> IndexList ++ [{hash:max_integer(), Name}];
+    %         false -> IndexList
+    %       end,
+    gb_trees:balance(gb_trees:from_orddict(orddict:from_list(IndexList))).
 
 %% @private
 %% @doc Query the tree with the key.
 -spec chash_gb_next(index() | index_as_int(),
                     index_tree()) -> {node_entry()}.
 
-chash_gb_next(X, {_, GbTree}) when is_integer(X) ->
-    chash_gb_next1(X, GbTree);
+chash_gb_next(X, {_, GbTree} = Tree) when is_integer(X) ->
+    {0, ZeroNode} = gb_trees:smallest(Tree),
+    chash_gb_next1(X, GbTree, true, ZeroNode);
 chash_gb_next(X, T) ->
     chash_gb_next(hash:to_integer(X), T).
 
 %% @private
 %% @doc Query a single node of a gb tree.
 -spec chash_gb_next1(X :: integer(),
-                     term()) -> {node_entry()}.
+                     term(), boolean(), chash_node()) -> {node_entry()}.
 
-chash_gb_next1(X, {Key, Val, Left, _Right})
+chash_gb_next1(X, {Key, Val, Left, _Right}, _IsRoot, ZeroNode)
     when X < Key ->
-    case chash_gb_next1(X, Left) of
+    case chash_gb_next1(X, Left, false, ZeroNode) of
       nil -> {Key, Val};
       Res -> Res
     end;
-chash_gb_next1(X, {Key, _Val, _Left, Right})
+chash_gb_next1(X, {Key, _Val, _Left, Right}, IsRoot, ZeroNode)
     when X >= Key ->
-    chash_gb_next1(X, Right);
-chash_gb_next1(_X, nil) -> nil.
+     case {chash_gb_next1(X, Right, false, ZeroNode), IsRoot} of
+         {nil, true} -> {0, ZeroNode};
+         {nil, false} -> nil;
+         {Res, _} -> Res
+     end;
+chash_gb_next1(_X, nil, _, _ZeroNode) -> nil.
 
 %% ===================================================================
 %% EUnit tests

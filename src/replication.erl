@@ -208,8 +208,8 @@ update_preflist({_, N} = Node, Pref) ->
 
 test_chash() ->
     Denominator = 36,
-    F = [{8, node0}, {12, node3}, {14, node2}, {18, node3},
-         {26, node1}, {30, node3}, {36, node2}],
+    F = [{0, node0}, {4, node3}, {6, node2}, {10, node3},
+         {18, node1}, {22, node3}, {28, node2}],
     {lists:map(fun ({I, N}) ->
                        {hash:as_integer(I / Denominator), N}
                end,
