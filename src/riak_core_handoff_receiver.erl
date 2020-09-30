@@ -97,8 +97,7 @@ handle_info({tcp, Socket, Data}, State) ->
                         State#state.peer, Reason]),
           {stop, normal, State};
       NewState when is_record(NewState, state) ->
-          InetMod = inet,
-          InetMod:setopts(Socket, [{active, once}]),
+          inet:setopts(Socket, [{active, once}]),
           {noreply, NewState, State#state.recv_timeout_len}
     end;
 handle_info(timeout, State) ->
@@ -180,8 +179,8 @@ terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
-safe_peername(Skt, Mod) ->
-    case Mod:peername(Skt) of
+safe_peername(Skt, Module) ->
+    case Module:peername(Skt) of
       {ok, {Host, Port}} -> {inet_parse:ntoa(Host), Port};
       _ ->
           {unknown,
