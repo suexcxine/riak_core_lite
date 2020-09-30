@@ -39,6 +39,8 @@
 
 -endif.
 
+-type bucket() :: binary() | {binary(), binary()}.
+
 -type index() :: chash:index_as_int().
 
 -type n_val() :: non_neg_integer().
@@ -121,7 +123,6 @@ get_apl_ann(DocIdx, N, UpNodes) ->
 %%      primary/fallback.
 -spec get_apl_ann(binary(), n_val(), ring(),
                   [node()]) -> preflist_ann().
-
 get_apl_ann(DocIdx, N, Ring, UpNodes) ->
     UpNodes1 = UpNodes,
     Preflist = riak_core_ring:preflist(DocIdx, Ring),
@@ -131,16 +132,8 @@ get_apl_ann(DocIdx, N, Ring, UpNodes) ->
 
 %% @doc Get the active preflist for a given {bucket, key} and list of nodes
 %%      and annotate each node with type of primary/fallback.
-%%-spec get_apl_ann(riak_core_bucket:bucket(),
-%%                  [node()]) -> preflist_ann().
-%% TODO REMOVE
--spec get_apl_ann(riak_core_bucket:bucket(),
-    [node()]) -> preflist_ann().
-
+-spec get_apl_ann(bucket(), [node()]) -> preflist_ann().
 get_apl_ann({Bucket, Key}, UpNodes) ->
-    %% TODO REMOVE
-%%    BucketProps = riak_core_bucket:get_bucket(Bucket),
-%%    NVal = proplists:get_value(n_val, BucketProps),
     {ok, NVal} = application:get_env(riak_core, target_n_val),
     DocIdx = riak_core_util:chash_key({Bucket, Key}),
     get_apl_ann(DocIdx, NVal, UpNodes).
@@ -148,9 +141,7 @@ get_apl_ann({Bucket, Key}, UpNodes) ->
 %% @doc Get the active preflist taking account of which nodes are up
 %%      for a given {bucket, key} and annotate each node with type of
 %%      primary/fallback
--spec
-     get_apl_ann_with_pnum(riak_core_bucket:bucket()) -> preflist_with_pnum_ann().
-
+-spec get_apl_ann_with_pnum(bucket()) -> preflist_with_pnum_ann().
 get_apl_ann_with_pnum(BKey) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     UpNodes = riak_core_ring:all_members(Ring),
