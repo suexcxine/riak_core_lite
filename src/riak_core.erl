@@ -276,14 +276,7 @@ register(App, [{health_check, HealthMFA} | T]) ->
 
 register_mod(App, Module, Type) when is_atom(Type) ->
     case Type of
-      vnode_modules ->
-          riak_core_vnode_proxy_sup:start_proxies(Module);
-      stat_mods ->
-          %% STATS
-          %%            riak_core_stats_sup:start_server(Module);
-          logger:warning("Metric collection disabled"),
-          ok;
-      _ -> ok
+      vnode_modules -> riak_core_vnode_proxy_sup:start_proxies(Module)
     end,
     case application:get_env(riak_core, Type) of
       undefined ->
