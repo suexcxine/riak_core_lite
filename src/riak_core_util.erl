@@ -236,9 +236,7 @@ chash_key(BKey) ->
 %%          chash:index()
 %% @doc Create a binary used for determining replica placement.
 chash_key({Bucket, Key}, _BucketProps) ->
-    %{_, {M, F}} = lists:keyfind(chash_keyfun, 1, BucketProps),
-    %M:F({Bucket,Key}).
-    % FIX static keyfun
+    % static keyfun
     chash_std_keyfun({Bucket, Key}).
 
 %% @spec chash_std_keyfun(BKey :: riak_object:bkey()) -> chash:index()

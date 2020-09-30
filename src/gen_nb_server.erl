@@ -90,28 +90,28 @@
                                              {stop, Reason :: term(),
                                               NewState :: term()}.
 
-%% @spec start_link(CallbackModule, IpAddr, Port, InitParams) -> Result
-%% CallbackModule = atom()
+%% @spec start_link(Module, IpAddr, Port, InitParams) -> Result
+%% Module = atom()
 %% IpAddr = string()
 %% Port = integer()
 %% InitParams = [any()]
 %% Result = {ok, pid()} | {error, any()}
 %% @doc Start server listening on IpAddr:Port
-start_link(CallbackModule, IpAddr, Port, InitParams) ->
+start_link(Module, IpAddr, Port, InitParams) ->
     gen_server:start_link(?MODULE,
-                          [CallbackModule, IpAddr, Port, InitParams], []).
+                          [Module, IpAddr, Port, InitParams], []).
 
 %% @hidden
-init([CallbackModule, IpAddr, Port, InitParams]) ->
-    case CallbackModule:init(InitParams) of
+init([Module, IpAddr, Port, InitParams]) ->
+    case Module:init(InitParams) of
       {ok, ServerState} ->
-          case listen_on(CallbackModule, IpAddr, Port) of
+          case listen_on(Module, IpAddr, Port) of
             {ok, Sock} ->
                 {ok,
-                 #state{cb = CallbackModule, sock = Sock,
+                 #state{cb = Module, sock = Sock,
                         server_state = ServerState}};
             Error ->
-                CallbackModule:terminate(Error, ServerState), Error
+                Module:terminate(Error, ServerState), Error
           end;
       Err -> Err
     end.
@@ -201,28 +201,28 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% Internal functions
 
 %% @hidden
-%% @spec listen_on(CallbackModule, IpAddr, Port) -> Result
-%% CallbackModule = atom()
+%% @spec listen_on(Module, IpAddr, Port) -> Result
+%% Module = atom()
 %% IpAddr = string() | tuple()
 %% Port = integer()
 %% Result = {ok, port()} | {error, any()}
-listen_on(CallbackModule, IpAddr, Port)
+listen_on(Module, IpAddr, Port)
     when is_tuple(IpAddr) andalso
            (8 =:= size(IpAddr) orelse 4 =:= size(IpAddr)) ->
-    SockOpts = [{ip, IpAddr} | CallbackModule:sock_opts()],
+    SockOpts = [{ip, IpAddr} | Module:sock_opts()],
     case gen_tcp:listen(Port, SockOpts) of
       {ok, LSock} ->
           {ok, _Ref} = prim_inet:async_accept(LSock, -1),
           {ok, LSock};
       Err -> Err
     end;
-listen_on(CallbackModule, IpAddrStr, Port) ->
+listen_on(Module, IpAddrStr, Port) ->
     case inet_parse:address(IpAddrStr) of
-      {ok, IpAddr} -> listen_on(CallbackModule, IpAddr, Port);
+      {ok, IpAddr} -> listen_on(Module, IpAddr, Port);
       Err ->
           logger:critical("Cannot start listener for ~p\n      "
                           "                      on invalid address "
                           "~p:~p",
-                          [CallbackModule, IpAddrStr, Port]),
+                          [Module, IpAddrStr, Port]),
           Err
     end.
