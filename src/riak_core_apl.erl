@@ -123,6 +123,7 @@ get_apl_ann(DocIdx, N, UpNodes) ->
 %%      primary/fallback.
 -spec get_apl_ann(binary(), n_val(), ring(),
                   [node()]) -> preflist_ann().
+
 get_apl_ann(DocIdx, N, Ring, UpNodes) ->
     UpNodes1 = UpNodes,
     Preflist = riak_core_ring:preflist(DocIdx, Ring),
@@ -133,15 +134,19 @@ get_apl_ann(DocIdx, N, Ring, UpNodes) ->
 %% @doc Get the active preflist for a given {bucket, key} and list of nodes
 %%      and annotate each node with type of primary/fallback.
 -spec get_apl_ann(bucket(), [node()]) -> preflist_ann().
+
 get_apl_ann({Bucket, Key}, UpNodes) ->
-    {ok, NVal} = application:get_env(riak_core, target_n_val),
+    {ok, NVal} = application:get_env(riak_core,
+                                     target_n_val),
     DocIdx = riak_core_util:chash_key({Bucket, Key}),
     get_apl_ann(DocIdx, NVal, UpNodes).
 
 %% @doc Get the active preflist taking account of which nodes are up
 %%      for a given {bucket, key} and annotate each node with type of
 %%      primary/fallback
--spec get_apl_ann_with_pnum(bucket()) -> preflist_with_pnum_ann().
+-spec
+     get_apl_ann_with_pnum(bucket()) -> preflist_with_pnum_ann().
+
 get_apl_ann_with_pnum(BKey) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     UpNodes = riak_core_ring:all_members(Ring),
@@ -470,9 +475,7 @@ six_node_bucket_key_ann_test() ->
              'dev6@127.0.0.1'],
     Bucket = <<"favorite">>,
     Key = <<"jethrotull">>,
-
     application:set_env(riak_core, target_n_val, 3),
-
     riak_core_ring_manager:setup_ets(test),
     riak_core_ring_manager:set_ring_global(Ring),
     Size = riak_core_ring:num_partitions(Ring),

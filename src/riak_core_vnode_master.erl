@@ -28,13 +28,12 @@
 
 -behaviour(gen_server).
 
--export([start_link/1,
-         get_vnode_pid/2, start_vnode/2, command/3, command/4,
-         command_unreliable/3, command_unreliable/4,
-         sync_command/3, sync_command/4, coverage/5,
-         command_return_vnode/4, sync_spawn_command/3,
-         make_request/3, make_coverage_request/4, all_nodes/1,
-         reg_name/1]).
+-export([start_link/1, get_vnode_pid/2, start_vnode/2,
+         command/3, command/4, command_unreliable/3,
+         command_unreliable/4, sync_command/3, sync_command/4,
+         coverage/5, command_return_vnode/4,
+         sync_spawn_command/3, make_request/3,
+         make_coverage_request/4, all_nodes/1, reg_name/1]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
@@ -59,7 +58,8 @@ vmaster_to_vmod(VMaster) ->
 
 start_link(VNodeMod) ->
     RegName = reg_name(VNodeMod),
-    gen_server:start_link({local, RegName}, ?MODULE, [VNodeMod, RegName], []).
+    gen_server:start_link({local, RegName}, ?MODULE,
+                          [VNodeMod, RegName], []).
 
 start_vnode(Index, VNodeMod) ->
     riak_core_vnode_manager:start_vnode(Index, VNodeMod).
@@ -191,8 +191,7 @@ all_nodes(VNodeMod) ->
 
 %% @private
 init([VNodeMod, _RegName]) ->
-    {ok,
-     #state{idxtab = undefined, vnode_mod = VNodeMod}}.
+    {ok, #state{idxtab = undefined, vnode_mod = VNodeMod}}.
 
 proxy_cast(Who, Req) -> proxy_cast(Who, Req, normal).
 

@@ -39,8 +39,8 @@
          disable_job_class/1, disable_job_class/2,
          job_class_enabled/1, job_class_enabled/2,
          job_class_disabled_message/2,
-         report_job_request_disposition/6,
-         get_index_n/1, posix_error/1]).
+         report_job_request_disposition/6, get_index_n/1,
+         posix_error/1]).
 
 -include("riak_core_vnode.hrl").
 
@@ -229,7 +229,7 @@ mkclientid(RemoteNode) ->
 %% @doc Create a binary used for determining replica placement.
 chash_key(BKey) ->
     %% TODO remove
-%%    BucketProps = riak_core_bucket:get_bucket(Bucket),
+    %%    BucketProps = riak_core_bucket:get_bucket(Bucket),
     chash_key(BKey, undefined).
 
 %% @spec chash_key(BKey :: riak_object:bkey(), [{atom(), any()}]) ->
@@ -869,13 +869,12 @@ report_job_request_disposition(false, Class, Mod, Func,
 -spec get_index_n({binary(), binary()}) -> index_n().
 
 get_index_n({Bucket, Key}) ->
-%%    BucketProps = riak_core_bucket:get_bucket(Bucket),
+    %%    BucketProps = riak_core_bucket:get_bucket(Bucket),
     {ok, N} = application:get_env(riak_core, target_n_val),
     ChashKey = riak_core_util:chash_key({Bucket, Key}),
     {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
     Index = chashbin:responsible_index(ChashKey, CHBin),
     {Index, N}.
-
 
 %% ===================================================================
 %% EUnit tests

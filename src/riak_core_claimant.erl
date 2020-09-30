@@ -178,9 +178,7 @@ claimant() ->
 
 init([]) ->
     schedule_tick(),
-    {ok,
-     #state{changes = [],
-            seed = erlang:timestamp()}}.
+    {ok, #state{changes = [], seed = erlang:timestamp()}}.
 
 handle_call(clear, _From, State) ->
     State2 = clear_staged(State), {reply, ok, State2};
@@ -318,8 +316,7 @@ maybe_commit_staged(Ring, NextRing,
 %%      call {@link clear/0}.
 clear_staged(State) ->
     remove_joining_nodes(),
-    State#state{changes = [],
-                seed = erlang:timestamp()}.
+    State#state{changes = [], seed = erlang:timestamp()}.
 
 %% @private
 remove_joining_nodes() ->
@@ -525,9 +522,7 @@ maybe_force_ring_update(Ring) ->
     end.
 
 do_maybe_force_ring_update(Ring) ->
-    case compute_next_ring([], erlang:timestamp(),
-                           Ring)
-        of
+    case compute_next_ring([], erlang:timestamp(), Ring) of
       {ok, NextRing} ->
           case same_plan(Ring, NextRing) of
             false ->
@@ -795,8 +790,7 @@ do_claimant_quiet(Node, CState, Replacing, Seed) ->
                 fun no_log/2).
 
 do_claimant(Node, CState, Log) ->
-    do_claimant(Node, CState, [],
-                erlang:timestamp(), Log).
+    do_claimant(Node, CState, [], erlang:timestamp(), Log).
 
 do_claimant(Node, CState, Replacing, Seed, Log) ->
     AreJoining = are_joining_nodes(CState),
@@ -1086,9 +1080,7 @@ handle_down_nodes(CState, Next) ->
                case OwnerLeaving and NextDown of
                  true ->
                      Active = riak_core_ring:active_members(CState) -- [O],
-                     RNode =
-                         lists:nth(rand:uniform(length(Active)),
-                                   Active),
+                     RNode = lists:nth(rand:uniform(length(Active)), Active),
                      {Idx, O, RNode, Mods, Status};
                  _ -> T
                end

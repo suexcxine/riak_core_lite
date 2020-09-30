@@ -110,8 +110,7 @@ init([Module, IpAddr, Port, InitParams]) ->
                 {ok,
                  #state{cb = Module, sock = Sock,
                         server_state = ServerState}};
-            Error ->
-                Module:terminate(Error, ServerState), Error
+            Error -> Module:terminate(Error, ServerState), Error
           end;
       Err -> Err
     end.

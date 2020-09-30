@@ -454,7 +454,8 @@ resize_transfer_notsent_fun(Ring, Mod, Src) ->
       false -> NValMap = DefaultN = undefined;
       true ->
           NValMap = Mod:nval_map(Ring),
-          {ok, DefaultN} = application:get_env(riak_core, target_n_val)
+          {ok, DefaultN} = application:get_env(riak_core,
+                                               target_n_val)
     end,
     fun (Key, Acc) ->
             record_seen_index(Ring, Shrinking, NValMap, DefaultN,

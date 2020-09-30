@@ -276,7 +276,8 @@ register(App, [{health_check, HealthMFA} | T]) ->
 
 register_mod(App, Module, Type) when is_atom(Type) ->
     case Type of
-      vnode_modules -> riak_core_vnode_proxy_sup:start_proxies(Module)
+      vnode_modules ->
+          riak_core_vnode_proxy_sup:start_proxies(Module)
     end,
     case application:get_env(riak_core, Type) of
       undefined ->

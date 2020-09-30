@@ -304,7 +304,6 @@ get_meta(Key, Default, State) ->
       Res -> Res
     end.
 
-
 %% @doc Return the node that owns the given index.
 -spec index_owner(State :: chstate(),
                   Idx :: chash:index_as_int()) -> Node :: term().

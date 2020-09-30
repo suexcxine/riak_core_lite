@@ -47,7 +47,8 @@ check_ring() ->
     check_ring(R).
 
 check_ring(Ring) ->
-    {ok, Nval} = application:get_env(riak_core, target_n_val),
+    {ok, Nval} = application:get_env(riak_core,
+                                     target_n_val),
     check_ring(Ring, Nval).
 
 %% @doc Check a ring for any preflists that do not satisfy n_val

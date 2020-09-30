@@ -63,12 +63,12 @@
 
 -export([start_link/0, start_link/1, get_my_ring/0,
          get_raw_ring/0, get_raw_ring_chashbin/0,
-         get_chash_bin/0, get_ring_id/0,
-         refresh_my_ring/0, refresh_ring/2, set_my_ring/1,
-         write_ringfile/0, prune_ringfiles/0, read_ringfile/1,
+         get_chash_bin/0, get_ring_id/0, refresh_my_ring/0,
+         refresh_ring/2, set_my_ring/1, write_ringfile/0,
+         prune_ringfiles/0, read_ringfile/1,
          find_latest_ringfile/0, force_update/0,
-         do_write_ringfile/1, ring_trans/2,
-         set_cluster_name/1, is_stable_ring/0]).
+         do_write_ringfile/1, ring_trans/2, set_cluster_name/1,
+         is_stable_ring/0]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
@@ -207,7 +207,8 @@ do_write_ringfile(Ring) ->
           TS =
               io_lib:format(".~B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
                             [Year, Month, Day, Hour, Minute, Second]),
-          {ok, Cluster} = application:get_env(riak_core, cluster_name),
+          {ok, Cluster} = application:get_env(riak_core,
+                                              cluster_name),
           FN = Dir ++ "/riak_core_ring." ++ Cluster ++ TS,
           do_write_ringfile(Ring, FN)
     end.
@@ -228,7 +229,8 @@ find_latest_ringfile() ->
     Dir = ring_dir(),
     case file:list_dir(Dir) of
       {ok, Filenames} ->
-          {ok, Cluster} = application:get_env(riak_core, cluster_name),
+          {ok, Cluster} = application:get_env(riak_core,
+                                              cluster_name),
           Timestamps = [list_to_integer(TS)
                         || {"riak_core_ring", C1, TS}
                                <- [list_to_tuple(string:tokens(FN, "."))
@@ -513,8 +515,7 @@ set_ring_global(Ring) ->
         chashbin:create(riak_core_ring:chash(TaintedRing)),
     {Epoch, Id} = ets:lookup_element(?ETS, id, 2),
     Actions = [{ring, TaintedRing}, {raw_ring, Ring},
-               {id, {Epoch, Id + 1}}, {chashbin, CHBin}
-    ],
+               {id, {Epoch, Id + 1}}, {chashbin, CHBin}],
     ets:insert(?ETS, Actions),
     case persistent_term:get(?RING_KEY, undefined) of
       ets -> ok;
