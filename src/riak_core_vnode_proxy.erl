@@ -48,8 +48,8 @@
 
 -define(DEFAULT_OVERLOAD_THRESHOLD, 10000).
 
-reg_name(Mod, Index) ->
-    ModBin = atom_to_binary(Mod, latin1),
+reg_name(Module, Index) ->
+    ModBin = atom_to_binary(Module, latin1),
     IdxBin = list_to_binary(integer_to_list(Index)),
     AllBin = <<$p, $r, $o, $x, $y, $_, ModBin/binary, $_,
                IdxBin/binary>>,
@@ -63,7 +63,7 @@ start_link(Mod, Index) ->
     proc_lib:start_link(?MODULE, init,
                         [[self(), RegName, Mod, Index]]).
 
-init([Parent, RegName, Mod, Index]) ->
+init([Parent, RegName, Module, Index]) ->
     erlang:register(RegName, self()),
     proc_lib:init_ack(Parent, {ok, self()}),
     Interval = application:get_env(riak_core,
@@ -95,7 +95,7 @@ init([Parent, RegName, Mod, Index]) ->
                                                [SafeInterval div 2]),
                                 SafeInterval div 2
                           end,
-    State = #state{mod = Mod, index = Index,
+    State = #state{mod = Module, index = Index,
                    check_mailbox = 0, check_counter = 0,
                    check_threshold = Threshold,
                    check_interval = SafeInterval,
@@ -268,26 +268,26 @@ handle_proxy(Msg,
                   check_request = RequestState2}}.
 
 handle_overload(Msg,
-                #state{mod = Mod, index = Index}) ->
+                #state{mod = Module, index = Index}) ->
     %% STATS
     %riak_core_stat:update(dropped_vnode_requests),
     case Msg of
       {'$gen_event',
        #riak_vnode_req_v1{sender = Sender,
                           request = Request}} ->
-          catch Mod:handle_overload_command(Request, Sender,
-                                            Index);
+          catch Module:handle_overload_command(Request, Sender,
+                                               Index);
       {'$gen_all_state_event',
        #riak_vnode_req_v1{sender = Sender,
                           request = Request}} ->
-          catch Mod:handle_overload_command(Request, Sender,
-                                            Index);
+          catch Module:handle_overload_command(Request, Sender,
+                                               Index);
       {'$gen_event',
        #riak_coverage_req_v1{sender = Sender,
                              request = Request}} ->
-          catch Mod:handle_overload_command(Request, Sender,
-                                            Index);
-      _ -> catch Mod:handle_overload_info(Msg, Index)
+          catch Module:handle_overload_command(Request, Sender,
+                                               Index);
+      _ -> catch Module:handle_overload_info(Msg, Index)
     end.
 
 %% @private
@@ -297,10 +297,10 @@ forget_vnode(State) ->
                 check_counter = 0, check_request = undefined}.
 
 %% @private
-get_vnode_pid(State = #state{mod = Mod, index = Index,
-                             vnode_pid = undefined}) ->
+get_vnode_pid(State = #state{mod = Module,
+                             index = Index, vnode_pid = undefined}) ->
     {ok, Pid} = riak_core_vnode_manager:get_vnode_pid(Index,
-                                                      Mod),
+                                                      Module),
     Mref = erlang:monitor(process, Pid),
     NewState = State#state{vnode_pid = Pid,
                            vnode_mref = Mref},

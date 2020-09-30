@@ -591,7 +591,7 @@ orddict_delta(A, B) ->
                                    {AVal, BVal}
                            end,
                            A2, B2),
-    Diff = orddict:filter(fun (_, {Same, Same}) -> false;
+    Diff = orddict:filter(fun (_, {_Same, _Same}) -> false;
                               (_, _) -> true
                           end,
                           Merged),
@@ -626,16 +626,16 @@ format_ip_and_port(Ip, Port) when is_tuple(Ip) ->
     lists:flatten(io_lib:format("~s:~p",
                                 [inet_parse:ntoa(Ip), Port])).
 
-peername(Socket, Transport) ->
-    case Transport:peername(Socket) of
+peername(Socket, Module) ->
+    case Module:peername(Socket) of
       {ok, {Ip, Port}} -> format_ip_and_port(Ip, Port);
       {error, Reason} ->
           %% just return a string so JSON doesn't blow up
           lists:flatten(io_lib:format("error:~p", [Reason]))
     end.
 
-sockname(Socket, Transport) ->
-    case Transport:sockname(Socket) of
+sockname(Socket, Module) ->
+    case Module:sockname(Socket) of
       {ok, {Ip, Port}} -> format_ip_and_port(Ip, Port);
       {error, Reason} ->
           %% just return a string so JSON doesn't blow up

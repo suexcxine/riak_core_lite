@@ -117,9 +117,9 @@ init([Module, IpAddr, Port, InitParams]) ->
 
 %% @hidden
 handle_call(Request, From,
-            #state{cb = Callback, server_state = ServerState} =
+            #state{cb = Module, server_state = ServerState} =
                 State) ->
-    case Callback:handle_call(Request, From, ServerState) of
+    case Module:handle_call(Request, From, ServerState) of
       {reply, Reply, NewServerState} ->
           {reply, Reply,
            State#state{server_state = NewServerState}};
@@ -143,9 +143,9 @@ handle_call(Request, From,
 
 %% @hidden
 handle_cast(Msg,
-            #state{cb = Callback, server_state = ServerState} =
+            #state{cb = Module, server_state = ServerState} =
                 State) ->
-    case Callback:handle_cast(Msg, ServerState) of
+    case Module:handle_cast(Msg, ServerState) of
       {noreply, NewServerState} ->
           {noreply, State#state{server_state = NewServerState}};
       {noreply, NewServerState, Arg}
@@ -160,10 +160,10 @@ handle_cast(Msg,
 %% @hidden
 handle_info({inet_async, ListSock, _Ref,
              {ok, CliSocket}},
-            #state{cb = Callback, server_state = ServerState} =
+            #state{cb = Module, server_state = ServerState} =
                 State) ->
     inet_db:register_socket(CliSocket, inet_tcp),
-    case Callback:new_connection(CliSocket, ServerState) of
+    case Module:new_connection(CliSocket, ServerState) of
       {ok, NewServerState} ->
           {ok, _} = prim_inet:async_accept(ListSock, -1),
           {noreply, State#state{server_state = NewServerState}};
@@ -172,9 +172,9 @@ handle_info({inet_async, ListSock, _Ref,
            State#state{server_state = NewServerState}}
     end;
 handle_info(Info,
-            #state{cb = Callback, server_state = ServerState} =
+            #state{cb = Module, server_state = ServerState} =
                 State) ->
-    case Callback:handle_info(Info, ServerState) of
+    case Module:handle_info(Info, ServerState) of
       {noreply, NewServerState} ->
           {noreply, State#state{server_state = NewServerState}};
       {noreply, NewServerState, Arg}
@@ -188,10 +188,10 @@ handle_info(Info,
 
 %% @hidden
 terminate(Reason,
-          #state{cb = Callback, sock = Sock,
+          #state{cb = Module, sock = Sock,
                  server_state = ServerState}) ->
     gen_tcp:close(Sock),
-    Callback:terminate(Reason, ServerState),
+    Module:terminate(Reason, ServerState),
     ok.
 
 %% @hidden
