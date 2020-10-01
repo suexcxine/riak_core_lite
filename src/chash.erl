@@ -173,7 +173,11 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
     DiffMap = lists:map(fun ({Ch, NewWt}) ->
                                 case orddict:find(Ch, SumOldSizeDict) of
                                   {ok, OldWt} ->
-                                      {Ch, math:trunc(Factor * NewWt) - OldWt};
+                                      % rounding errors leading to node indices
+                                      % out of bounds worse than slight load
+                                      % balancing issues caused by simply
+                                      % truncating.
+                                      {Ch, trunc(Factor * NewWt) - OldWt};
                                   error -> {Ch, round(Factor * NewWt)}
                                 end
                         end,
@@ -190,7 +194,7 @@ make_tree(Map) ->
 %% @doc Low-level function for querying a size tree: the (integer) point within
 %% the hash space.
 -spec query_tree(index() | index_as_int(),
-                 index_tree()) -> {node_entry()}.
+                 index_tree()) -> node_entry().
 
 query_tree(Val, Tree) when is_integer(Val) ->
     chash_gb_next(Val rem hash:max_integer(), Tree);
@@ -221,16 +225,11 @@ hash_binary_via_index_tree(Key, Tree) ->
 contains_name(Name, {SizeMap, _}) ->
     lists:keymember(Name, 2, SizeMap).
 
-%% @doc Create a brand new ring.  The size is irrelevant and only left to be
-%% backwards compatible. Initially the complete ring consists of a single
-%% section owned by the seed node.
--spec fresh(NumPartitions :: num_partitions(),
-            SeedNode :: chash_node()) -> chash().
+%% @doc Create a brand new ring. Initially each node contained in the weightlist
+%% owns exactly one section sized according to their weight.
+-spec fresh(WeightMap :: owner_weight_list()) -> chash().
 
-fresh(_NumPartitions, SeedNode) ->
-    %% Not sure what to do with NumPartitions
-    %% Currently weight is not considered, set to 100 for every node.
-    WeightMap = [{SeedNode, 100}],
+fresh(WeightMap) ->
     {chash_size_map_to_index_list(make_size_map(WeightMap)),
      stale}.
 
@@ -295,8 +294,8 @@ nodes(CHash) -> {NextList, _} = CHash, NextList.
 
 %% @doc Return the distance of the index of the segment belonging to the given
 %% key to the index of the next segment
--spec node_size(Index :: index(),
-                CHash :: chash()) -> index().
+-spec node_size(Index :: index() | index_as_int(),
+                CHash :: chash()) -> pos_integer().
 
 node_size(Index, {IndexList, _Tree}) ->
     node_size(Index, IndexList, 0).
@@ -625,18 +624,19 @@ chash_index_list_to_gb_tree(IndexList) ->
 %% @private
 %% @doc Query the tree with the key.
 -spec chash_gb_next(index() | index_as_int(),
-                    index_tree()) -> {node_entry()}.
+                    index_tree()) -> node_entry().
 
 chash_gb_next(X, {_, GbTree} = Tree) when is_integer(X) ->
     {0, ZeroNode} = gb_trees:smallest(Tree),
     chash_gb_next1(X, GbTree, true, ZeroNode);
 chash_gb_next(X, T) ->
-    chash_gb_next(hash:to_integer(X), T).
+    chash_gb_next(hash:as_integer(X), T).
 
 %% @private
-%% @doc Query a single node of a gb tree.
+%% @doc Return the entry associated with the given key according to chash
+%% semantics: The responsible node for the key is the one next on the ring.
 -spec chash_gb_next1(X :: integer(),
-                     term(), boolean(), chash_node()) -> {node_entry()}.
+                     term(), boolean(), chash_node()) -> node_entry().
 
 chash_gb_next1(X, {Key, Val, Left, _Right}, _IsRoot, ZeroNode)
     when X < Key ->

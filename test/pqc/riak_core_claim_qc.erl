@@ -49,7 +49,7 @@ prop_claim_ensures_unique_nodes(ChooseFun) ->
                 Partitions = ?POW_2(PartsPow),
                 [Node0 | RestNodes] = test_nodes(NodeCount),
 
-                R0 = riak_core_ring:fresh(Partitions, Node0),
+                R0 = riak_core_ring:fresh(Node0),
                 RAdded = lists:foldl(fun(Node, Racc) ->
                                              riak_core_ring:add_member(Node0, Racc, Node)
                                      end, R0, RestNodes),
@@ -102,7 +102,7 @@ prop_claim_ensures_unique_nodes_adding_groups(ChooseFun) ->
                 %% io:format("Base: ~p~n",[[Node0 | RestNodes]]),
                 %% io:format("Added: ~p~n",[AddNodes]),
 
-                R0 = riak_core_ring:fresh(Partitions, Node0),
+                R0 = riak_core_ring:fresh(Node0),
                 RBase = lists:foldl(fun(Node, Racc) ->
                                              riak_core_ring:add_member(Node0, Racc, Node)
                                      end, R0, RestNodes),
@@ -155,7 +155,7 @@ prop_claim_ensures_unique_nodes_adding_singly(ChooseFun) ->
                 Partitions = ?POW_2(PartsPow),
                 [Node0 | RestNodes] = test_nodes(NodeCount),
 
-                R0 = riak_core_ring:fresh(Partitions, Node0),
+                R0 = riak_core_ring:fresh(Node0),
                 Rfinal = lists:foldl(fun(Node, Racc) ->
                                              Racc0 = riak_core_ring:add_member(Node0, Racc, Node),
                                              %% TODO which is it? Claim or ChooseFun??
@@ -241,7 +241,7 @@ prop_wants() ->
                        lists:member(joining, L)),
              ?LET(X, choose(1, 16), trunc(math:pow(2, X)))},
             begin
-                R0 = riak_core_ring:fresh(Q, tnode(1)),
+                R0 = riak_core_ring:fresh(tnode(1)),
                 {_, R2, Active} =
                     lists:foldl(
                       fun(S, {I, R1, A1}) ->

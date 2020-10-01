@@ -259,29 +259,27 @@ fresh() ->
     fresh(node()).
 
 %% @doc Equivalent to fresh/0 but allows specification of the local node name.
-%%      Called by fresh/0, and otherwise only intended for testing purposes.
 -spec fresh(NodeName :: term()) -> chstate().
 
 fresh(NodeName) ->
-    fresh(application:get_env(riak_core, ring_creation_size,
-                              undefined),
-          NodeName).
+    fresh(NodeName, [NodeName]).
 
-%% @doc Equivalent to fresh/1 but allows specification of the ring size.
+%% @doc Equivalent to fresh/1 but allows specification of other nodes.
 %%      Called by fresh/1, and otherwise only intended for testing purposes.
--spec fresh(ring_size(),
-            NodeName :: term()) -> chstate().
+%%      The name of the local node needs to be the first entry in the list of
+%%      nodes.
+-spec fresh(LocalName :: term(), Nodes :: [term()]) -> chstate().
 
-fresh(RingSize, NodeName) ->
-    VClock = vclock:increment(NodeName, vclock:fresh()),
-    #chstate{nodename = NodeName,
-             clustername = {NodeName, erlang:timestamp()},
+fresh(LocalName, Nodes = [LocalName | _]) ->
+    VClock = vclock:increment(LocalName, vclock:fresh()),
+    Weights = [{Node, 100} || Node <- Nodes],
+    #chstate{nodename = LocalName,
+             clustername = {LocalName, erlang:timestamp()},
              members =
-                 [{NodeName, {valid, VClock, [{gossip_vsn, 2}]}}],
-             chring = chash:fresh(RingSize, NodeName), next = [],
-             weights =
-                 [{NodeName}, 100], %% currently weight not considered
-             claimant = NodeName, seen = [{NodeName, VClock}],
+                 [{LocalName, {valid, VClock, [{gossip_vsn, 2}]}}],
+             chring = chash:fresh(Weights), next = [],
+             weights = Weights, %% currently weight not considered
+             claimant = LocalName, seen = [{LocalName, VClock}],
              rvsn = VClock, vclock = VClock, meta = dict:new()}.
 
 %% @doc change the size of the ring to `NewRingSize'. If the ring
@@ -291,11 +289,11 @@ fresh(RingSize, NodeName) ->
 
 %% NOTE with random slicing this operation is not necessary anymore.
 %% TODO find out when resize is called
-resize(State, NewRingSize) ->
+resize(State, _NewRingSize) ->
     NewRing = lists:foldl(fun ({Idx, Owner}, RingAcc) ->
                                   chash:update(Idx, Owner, RingAcc)
                           end,
-                          chash:fresh(NewRingSize, '$dummyhost@resized'),
+                          chash:fresh([{'$dummyhost@resized', 100}]),
                           all_owners(State)),
     set_chash(State, NewRing).
 
@@ -2167,7 +2165,7 @@ resize_xfer_test_() ->
      fun (_) -> meck:unload() end, fun test_resize_xfers/0}.
 
 test_resize_xfers() ->
-    Ring0 = riak_core_ring:fresh(4, a),
+    Ring0 = riak_core_ring:fresh(a),
     Ring1 = set_pending_resize(resize(Ring0, 8), Ring0),
     Source1 = {0, a},
     Target1 =

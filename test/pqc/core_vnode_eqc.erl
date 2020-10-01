@@ -147,7 +147,7 @@ index(S) ->
     oneof(S#qcst.indices).
 
 initial_state_data() ->
-    Ring = riak_core_ring:fresh(8, node()),
+    Ring = riak_core_ring:fresh(node()),
     riak_core_ring_manager:set_my_ring(Ring),
     #qcst{started=[],
           counters=orddict:new(),

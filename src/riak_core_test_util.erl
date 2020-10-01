@@ -55,7 +55,7 @@ unlink_named_process(Name) when is_atom(Name) ->
 
 setup_mockring1() ->
     % requires a running riak_core_ring_manager, in test-mode is ok
-    Ring0 = riak_core_ring:fresh(16, node()),
+    Ring0 = riak_core_ring:fresh(node()),
     Ring1 = riak_core_ring:add_member(node(), Ring0,
                                       othernode@otherhost),
     Ring2 = riak_core_ring:add_member(node(), Ring1,
@@ -84,7 +84,7 @@ fake_ring(Size, NumNodes) ->
     Indices = lists:seq(0, (Size - 1) * Inc, Inc),
     Owners = lists:zip(Indices, Nodes),
     [Node | OtherNodes] = Nodes,
-    Ring = riak_core_ring:fresh(Size, Node),
+    Ring = riak_core_ring:fresh(Node),
     Ring2 = lists:foldl(fun (OtherNode, RingAcc) ->
                                 RingAcc2 = riak_core_ring:add_member(Node,
                                                                      RingAcc,

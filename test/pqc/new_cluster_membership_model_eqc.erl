@@ -204,7 +204,7 @@ do_converge_ring(State, {RC, true}) ->
 
 %% Make a ring with partitions equally distributed across the nodes
 make_default_ring(Size, Nodes) ->
-    Indices = [Idx || {Idx, _} <- chash:nodes(chash:fresh(Size, undefined))],
+    Indices = [Idx || {Idx, _} <- chash:nodes(chash:fresh([{undefined, 100}]))],
     N = erlang:length(Nodes),
     [{lists:nth(Idx+1, Indices), lists:nth((Idx rem N)+1, Nodes)}
      || Idx <- lists:seq(0, Size-1)].
@@ -236,7 +236,7 @@ owner_node(CState) ->
     CState?CHSTATE.nodename.
 
 init_node_state(State, Node) ->
-    Ring = chash:fresh(State#state.ring_size, Node),
+    Ring = chash:fresh([{Node, 100}]),
     Indices = indices(?CHSTATE{chring=Ring}, Node),
     RVsn=vclock:increment(Node, vclock:fresh()),
     VClock=vclock:increment(Node, vclock:fresh()),
@@ -280,7 +280,7 @@ g_initial_nodes() ->
      lists:split(?INITIAL_CLUSTER_SIZE, L)).
 
 g_idx(State) ->
-    Indices = [Idx || {Idx, _} <- chash:nodes(chash:fresh(State#state.ring_size, undefined))],
+    Indices = [Idx || {Idx, _} <- chash:nodes(chash:fresh([{undefined, 100}]))],
     elements(Indices).
 
 g_gossip(State, Gossip) ->
@@ -662,7 +662,7 @@ s_initial_cluster(State, Members, Others, RandomRing) ->
     Ring = lists:foldl(fun({Idx, Node}, Ring0) ->
                                chash:update(Idx, Node, Ring0)
                        end,
-                       chash:fresh(State#state.ring_size, undefined),
+                       chash:fresh([{undefined, 100}]),
                        make_default_ring(State#state.ring_size, Members2)),
     Claimant = hd(Members2),
     Members3 = [{M, {valid, vclock:increment(M, vclock:fresh()), []}}

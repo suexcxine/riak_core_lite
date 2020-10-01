@@ -365,17 +365,18 @@ rms(L) ->
 
 %% Make a ring of size length(Nodes) ordering the nodes as given
 make_ring(Nodes) ->
-    R0 = riak_core_ring:fresh(length(Nodes), hd(Nodes)),
-    Idxs = [I || {I, _} <- riak_core_ring:all_owners(R0)],
-    NewOwners = lists:zip(Idxs, Nodes),
-    R1 = lists:foldl(fun (N, R) ->
-                             riak_core_ring:add_member(hd(Nodes), R, N)
-                     end,
-                     R0, Nodes),
-    lists:foldl(fun ({I, N}, R) ->
-                        riak_core_ring:transfer_node(I, N, R)
-                end,
-                R1, NewOwners).
+    R0 = riak_core_ring:fresh(hd(Nodes), Nodes),
+    R0.
+    % Idxs = [I || {I, _} <- riak_core_ring:all_owners(R0)],
+    % NewOwners = lists:zip(Idxs, Nodes),
+    % R1 = lists:foldl(fun (N, R) ->
+    %                          riak_core_ring:add_member(hd(Nodes), R, N)
+    %                  end,
+    %                  R0, Nodes),
+    % lists:foldl(fun ({I, N}, R) ->
+    %                     riak_core_ring:transfer_node(I, N, R)
+    %             end,
+    %             R1, NewOwners).
 
 %% Generate a completion test function that makes sure all required
 %% distances are created

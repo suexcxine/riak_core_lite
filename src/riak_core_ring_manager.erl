@@ -322,7 +322,7 @@ init([Mode]) ->
     riak_core_ring_events:ring_update(Ring),
     {ok, State}.
 
-reload_ring(test) -> riak_core_ring:fresh(16, node());
+reload_ring(test) -> riak_core_ring:fresh();
 reload_ring(live) ->
     case riak_core_ring_manager:find_latest_ringfile() of
       {ok, RingFile} ->
@@ -648,7 +648,7 @@ do_write_ringfile_test() ->
     file:change_mode(?TMP_RINGFILE, 8#00644),
     file:delete(?TMP_RINGFILE),
     %% Check happy path
-    GenR = fun (Name) -> riak_core_ring:fresh(64, Name) end,
+    GenR = fun (Name) -> riak_core_ring:fresh(Name) end,
     ?assertEqual(ok,
                  (do_write_ringfile(GenR(happy), ?TMP_RINGFILE))),
     %% errors expected

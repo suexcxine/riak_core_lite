@@ -126,7 +126,7 @@ prop_only_boundaries() ->
                                {5, choose(0, ?HASHMAX)},
                                {2, find_near_boundaries(?RINGSIZE(RingPower),
                                                         ?PARTITIONSIZE(?RINGSIZE(RingPower)))}]),
-                     ring_to_set(chash:fresh(?RINGSIZE(RingPower), dummy))},
+                     ring_to_set(chash:fresh([{dummy, 100}]))},
                      begin
                          RingSize = ?RINGSIZE(RingPower),
                          HashIsInRing = ordsets:is_element(HashValue, BoundarySet),

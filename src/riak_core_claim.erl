@@ -732,7 +732,7 @@ gen_diag(RingSize, NodeCount) ->
     Nodes = [list_to_atom(lists:concat(["n_", N]))
              || N <- lists:seq(1, NodeCount)],
     {HeadNode, RestNodes} = {hd(Nodes), tl(Nodes)},
-    R0 = riak_core_ring:fresh(RingSize, HeadNode),
+    R0 = riak_core_ring:fresh(HeadNode),
     RAdded = lists:foldl(fun (Node, Racc) ->
                                  riak_core_ring:add_member(HeadNode, Racc, Node)
                          end,

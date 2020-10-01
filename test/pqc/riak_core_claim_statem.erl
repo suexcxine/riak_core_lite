@@ -34,7 +34,7 @@ claim_test_()->
 -spec with_ring_size(pos_integer()) -> proper_statem:symbolic_state().
 with_ring_size(N) ->
     RingSize = trunc(math:pow(2, N)),
-    #state{ring_size=RingSize, ring=riak_core_ring:fresh(RingSize, ?CLAIMANT)}.
+    #state{ring_size=RingSize, ring=riak_core_ring:fresh(?CLAIMANT)}.
 
 %% @doc Returns the state in which each test case starts. (Unless a different
 %%      initial state is supplied explicitly to, e.g. commands/2.)

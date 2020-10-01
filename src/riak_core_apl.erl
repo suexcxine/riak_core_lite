@@ -295,7 +295,7 @@ apl_with_partition_nums(Apl, Size) ->
 -ifdef(TEST).
 
 smallest_test() ->
-    Ring = riak_core_ring:fresh(1, node()),
+    Ring = riak_core_ring:fresh(node()),
     ?assertEqual([{0, node()}],
                  (get_apl(last_in_ring(), 1, Ring, [node()]))).
 
@@ -332,18 +332,18 @@ four_node_test() ->
                  (get_apl(last_in_ring(), 3, Ring, [nodea, nodeb]))).
 
 %% Create a perfect ring - RingSize must be a multiple of nodes
-perfect_ring(RingSize, Nodes)
-    when RingSize rem length(Nodes) =:= 0 ->
-    Ring = riak_core_ring:fresh(RingSize, node()),
-    Owners = riak_core_ring:all_owners(Ring),
-    TransferNode = fun ({Idx, _CurOwner},
-                        {Ring0, [NewOwner | Rest]}) ->
-                           {riak_core_ring:transfer_node(Idx, NewOwner, Ring0),
-                            Rest ++ [NewOwner]}
-                   end,
-    {PerfectRing, _} = lists:foldl(TransferNode,
-                                   {Ring, Nodes}, Owners),
-    PerfectRing.
+perfect_ring([H | _] = Nodes) ->
+    Ring = riak_core_ring:fresh(H, Nodes),
+    Ring.
+    % Owners = riak_core_ring:all_owners(Ring),
+    % TransferNode = fun ({Idx, _CurOwner},
+    %                     {Ring0, [NewOwner | Rest]}) ->
+    %                        {riak_core_ring:transfer_node(Idx, NewOwner, Ring0),
+    %                         Rest ++ [NewOwner]}
+    %                end,
+    % {PerfectRing, _} = lists:foldl(TransferNode,
+    %                                {Ring, Nodes}, Owners),
+    % PerfectRing.
 
 last_in_ring() -> hash:as_binary(hash:max_integer()).
 

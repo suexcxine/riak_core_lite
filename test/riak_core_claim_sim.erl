@@ -407,7 +407,7 @@ commission(Base, Test, {Wants, Choose}) ->
     NVal = proplists:get_value(n_val, Test, 3),
     TN = proplists:get_value(target_n_val, Test, 4),
     
-    Ring = riak_core_ring:fresh(RingSize, sim_node(1)),
+    Ring = riak_core_ring:fresh(sim_node(1)),
     
     SeqJoinCmds = [ [{join, sim_node(I)}] || I <- lists:seq(2, Nodes)],
     BulkJoinCmds =  [ [ {join, sim_node(I)} || I <- lists:seq(2, Nodes) ] ],
@@ -539,7 +539,7 @@ commission_claims() ->
 -ifdef(TEST).
 
 run_test() ->
-    Ring = riak_core_ring:fresh(64, anode),
+    Ring = riak_core_ring:fresh(anode),
     ?assertEqual(ok, run([{ring, Ring},
                           {target_n_val,2},
                           {wants,{riak_core_claim,wants_claim_v2}},

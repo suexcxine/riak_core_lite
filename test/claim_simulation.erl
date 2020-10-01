@@ -66,7 +66,7 @@ run(Opts) ->
     NodeCount = ?get(node_count, Opts, 100),
     NodeCapacity = ?get(node_capacity, Opts, 24), %% in TB
 
-    Ring1 = riak_core_ring:fresh(RingSize, 'riak@node1'),
+    Ring1 = riak_core_ring:fresh('riak@node1'),
     {Rings, _} = lists:mapfoldl(
                    fun(N, Prev) ->
                            Node = ?node(N),

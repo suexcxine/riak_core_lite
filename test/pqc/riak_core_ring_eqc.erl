@@ -72,7 +72,7 @@ resize_item() ->
                replica_position(RingSize),
                check_nval(RingSize, GrowthF)},
               begin
-                  Ring0 = riak_core_ring:fresh(RingSize, node()),
+                  Ring0 = riak_core_ring:fresh(node()),
                   Ring1 = riak_core_ring:resize(Ring0,trunc(GrowthF * RingSize)),
                   Ring = riak_core_ring:set_pending_resize(Ring1, Ring0),
                   CHashKey = hash:as_binary(IndexStart - 1),
@@ -93,7 +93,7 @@ resize_item() ->
               end)).
 
 index_in_current_ring(RingSize) ->
-    elements([I || {I,_} <- riak_core_ring:all_owners(riak_core_ring:fresh(RingSize, node()))]).
+    elements([I || {I,_} <- riak_core_ring:all_owners(riak_core_ring:fresh(node()))]).
 
 current_size() ->
     elements([16, 32, 64, 128]).
