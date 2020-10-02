@@ -62,7 +62,7 @@
          hash_binary_via_index_tree/2]).
 
 %% chash API
--export([contains_name/2, fresh/2, lookup/2,
+-export([contains_name/2, fresh/1, lookup/2,
          lookup_node_entry/2, key_of/1, members/1, next_index/2,
          nodes/1, node_size/2, offsets/1, predecessors/2,
          predecessors/3, ring_increment/1, size/1, successors/2,
@@ -115,8 +115,6 @@
 -type index() :: binary().
 
 -type index_as_int() :: pos_integer().
-
--type num_partitions() :: pos_integer().
 
 %% A single node is identified by its term and starting index.
 -type node_entry() :: {index_as_int(), chash_node()}.
