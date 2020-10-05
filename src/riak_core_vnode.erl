@@ -551,13 +551,13 @@ active({resize_transfer_complete, SeenIdxs},
        State = #state{mod = Module, modstate = ModState,
                       handoff_target = Target}) ->
     case Target of
-        none -> continue(State);
-        _ ->
-            %% TODO: refactor similarties w/ finish_handoff handle_event
-            {ok, NewModState} = Mod:handoff_finished(Target,
-                                                     ModState),
-            finish_handoff(SeenIdxs,
-                           State#state{modstate = NewModState})
+      none -> continue(State);
+      _ ->
+          %% TODO: refactor similarties w/ finish_handoff handle_event
+          {ok, NewModState} = Module:handoff_finished(Target,
+                                                      ModState),
+          finish_handoff(SeenIdxs,
+                         State#state{modstate = NewModState})
     end;
 active({handoff_error, _Err, _Reason}, State) ->
     State2 = start_manager_event_timer(handoff_error,
@@ -575,11 +575,11 @@ active({trigger_handoff, TargetIdx, TargetNode},
 active(trigger_delete,
        State = #state{mod = Module, modstate = ModState,
                       index = Idx}) ->
-    case mark_delete_complete(Idx, Mod) of
-        {ok, _NewRing} ->
-            {ok, NewModState} = Module:delete(ModState),
-            logger:debug("~p ~p vnode deleted", [Idx, Module]);
-        _ -> NewModState = ModState
+    case mark_delete_complete(Idx, Module) of
+      {ok, _NewRing} ->
+          {ok, NewModState} = Module:delete(ModState),
+          logger:debug("~p ~p vnode deleted", [Idx, Module]);
+      _ -> NewModState = ModState
     end,
     maybe_shutdown_pool(State),
     riak_core_vnode_manager:unregister_vnode(Idx, Module),
@@ -728,24 +728,21 @@ handle_sync_event(core_status, _From, StateName,
                _ -> undefined
            end,
     Status = [{index, Index}, {mod, Module}] ++
-                 case FN of
-                     undefined -> [];
-                     _ -> [{forward, FN}]
+               case FN of
+                 undefined -> [];
+                 _ -> [{forward, FN}]
+               end
+                 ++
+                 case HT of
+                   none -> [];
+                   _ -> [{handoff_target, HT}]
                  end
-                     ++
-                     case HT of
-                         none -> [];
-                         _ -> [{handoff_target, HT}]
-                     end
-                         ++
-                         case ModState of
-                             {deleted, _} -> [deleted];
-                             _ -> []
-                         end,
-    {reply,
-     {Mode, Status},
-     StateName,
-     State,
+                   ++
+                   case ModState of
+                     {deleted, _} -> [deleted];
+                     _ -> []
+                   end,
+    {reply, {Mode, Status}, StateName, State,
      State#state.inactivity_timeout}.
 
 %%handle_info
@@ -763,22 +760,20 @@ handle_info({'EXIT', Pid, Reason}, _StateName,
             State = #state{mod = Module, index = Index,
                            pool_pid = Pid, pool_config = PoolConfig}) ->
     case Reason of
-        Reason when Reason == normal; Reason == shutdown ->
-            continue(State#state{pool_pid = undefined});
-        _ ->
-            logger:error("~p ~p worker pool crashed ~p\n",
-                         [Index, Module, Reason]),
-            {pool, WorkerModule, PoolSize, WorkerArgs} = PoolConfig,
-            logger:debug("starting worker pool ~p with size of "
-                         "~p for vnode ~p.",
-                         [WorkerModule, PoolSize, Index]),
-            {ok, NewPoolPid} =
-                riak_core_vnode_worker_pool:start_link(WorkerModule,
-                                                       PoolSize,
-                                                       Index,
-                                                       WorkerArgs,
-                                                       worker_props),
-            continue(State#state{pool_pid = NewPoolPid})
+      Reason when Reason == normal; Reason == shutdown ->
+          continue(State#state{pool_pid = undefined});
+      _ ->
+          logger:error("~p ~p worker pool crashed ~p\n",
+                       [Index, Module, Reason]),
+          {pool, WorkerModule, PoolSize, WorkerArgs} = PoolConfig,
+          logger:debug("starting worker pool ~p with size of "
+                       "~p for vnode ~p.",
+                       [WorkerModule, PoolSize, Index]),
+          {ok, NewPoolPid} =
+              riak_core_vnode_worker_pool:start_link(WorkerModule,
+                                                     PoolSize, Index,
+                                                     WorkerArgs, worker_props),
+          continue(State#state{pool_pid = NewPoolPid})
     end;
 handle_info({'DOWN', _Ref, process, _Pid, normal},
             _StateName, State = #state{modstate = {deleted, _}}) ->
@@ -846,7 +841,7 @@ do_init(State = #state{index = Index, mod = Module,
         _ ->
              PoolConfig = case lists:keyfind(pool, 1, Props) of
                 {pool, WorkerModule, PoolSize, WorkerArgs} =
-                    PoolConfig ->
+                    PoolCfg ->
                     logger:debug("starting worker pool ~p with size of "
                                  "~p~n",
                                  [WorkerModule, PoolSize]),
@@ -855,8 +850,9 @@ do_init(State = #state{index = Index, mod = Module,
                                                                PoolSize,
                                                                Index,
                                                                WorkerArgs,
-                                                               worker_props);
-                _ -> PoolPid = PoolConfig = undefined
+                                                               worker_props),
+                        PoolCfg;
+                _ -> PoolPid =  undefined
             end,
             riak_core_handoff_manager:remove_exclusion(Module, Index),
             Timeout = application:get_env(riak_core,
@@ -994,7 +990,7 @@ vnode_coverage(Sender, Request, KeySpaces,
                                             {Index, NextOwner},
                                             KeySpaces,
                                             Sender,
-                                            riak_core_vnode_master:reg_name(Mod)),
+                                            riak_core_vnode_master:reg_name(Module)),
             Action = continue
     end,
     case Action of
@@ -1015,7 +1011,7 @@ vnode_coverage(Sender, Request, KeySpaces,
     end.
 
 vnode_handoff_command(Sender, Request, ForwardTo,
-                      State = #state{module = Mod, modstate = ModState,
+                      State = #state{mod = Module, modstate = ModState,
                                      handoff_target = HOTarget,
                                      handoff_type = HOType, pool_pid = Pool}) ->
     case Module:handle_handoff_command(Request,
@@ -1426,7 +1422,7 @@ mod_set_forwarding(Forward,
                       Module:module_info(exports))
         of
         true ->
-            NewModState = Mod:set_vnode_forwarding(Forward,
+            NewModState = Module:set_vnode_forwarding(Forward,
                                                    ModState),
             State#state{modstate = NewModState};
         false -> State
