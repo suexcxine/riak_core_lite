@@ -1568,7 +1568,7 @@ ring_ready(State0) ->
     Ready = lists:all(fun (X) -> X =:= true end, R),
     Ready.
 
-%% @doc Like {@see ring_ready/1} with the local raw ring.
+%% @doc Like {@link ring_ready/1} with the local raw ring.
 -spec ring_ready() -> boolean().
 
 ring_ready() ->
