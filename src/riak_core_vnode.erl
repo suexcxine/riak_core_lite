@@ -607,6 +607,7 @@ active(_Event, _From, State) ->
 
 %% handle_event
 %%%%%%%%%%%%%%%%
+
 handle_event({set_forwarding, undefined}, _StateName,
              State = #state{modstate = {deleted, _ModState}}) ->
     %% The vnode must forward requests when in the deleted state, therefore
@@ -1364,7 +1365,7 @@ start_handoff(HOType, TargetIdx, TargetNode,
                                       TargetNode,
                                       [],
                                       State2),
-            continue(NewState)
+            continue(NewState)    
     end.
 
 start_outbound(HOType, TargetIdx, TargetNode, Opts,
