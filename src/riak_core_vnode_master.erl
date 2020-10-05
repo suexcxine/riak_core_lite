@@ -28,33 +28,17 @@
 
 -behaviour(gen_server).
 
--export([start_link/1,
-         start_link/2,
-         start_link/3,
-         get_vnode_pid/2,
-         start_vnode/2,
-         command/3,
-         command/4,
-         command_unreliable/3,
-         command_unreliable/4,
-         sync_command/3,
-         sync_command/4,
-         coverage/5,
-         command_return_vnode/4,
-         sync_spawn_command/3,
-         make_request/3,
-         make_coverage_request/4,
-         all_nodes/1,
-         reg_name/1]).
+-export([start_link/1, get_vnode_pid/2, start_vnode/2,
+         command/3, command/4, command_unreliable/3,
+         command_unreliable/4, sync_command/3, sync_command/4,
+         coverage/5, command_return_vnode/4,
+         sync_spawn_command/3, make_request/3,
+         make_coverage_request/4, all_nodes/1, reg_name/1]).
 
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2,
+         handle_info/2, terminate/2, code_change/3]).
 
--record(state, {idxtab, sup_name, vnode_mod, legacy}).
+-record(state, {idxtab, sup_name, vnode_mod}).
 
 -define(LONG_TIMEOUT, 120 * 1000).
 
@@ -72,17 +56,10 @@ vmaster_to_vmod(VMaster) ->
     L = atom_to_list(VMaster),
     list_to_atom(lists:sublist(L, length(L) - 7)).
 
-start_link(VNodeMod) -> start_link(VNodeMod, undefined).
-
-start_link(VNodeMod, LegacyMod) ->
-    start_link(VNodeMod, LegacyMod, undefined).
-
-start_link(VNodeMod, LegacyMod, Service) ->
+start_link(VNodeMod) ->
     RegName = reg_name(VNodeMod),
-    gen_server:start_link({local, RegName},
-                          ?MODULE,
-                          [Service, VNodeMod, LegacyMod, RegName],
-                          []).
+    gen_server:start_link({local, RegName}, ?MODULE,
+                          [VNodeMod, RegName], []).
 
 start_vnode(Index, VNodeMod) ->
     riak_core_vnode_manager:start_vnode(Index, VNodeMod).
@@ -101,10 +78,7 @@ command(PrefListOrCmd, Msg, Sender, VMaster) ->
 
 command_unreliable(PrefListOrCmd, Msg, Sender,
                    VMaster) ->
-    command2(PrefListOrCmd,
-             Msg,
-             Sender,
-             VMaster,
+    command2(PrefListOrCmd, Msg, Sender, VMaster,
              unreliable).
 
 %% Send the command to the preflist given with responses going to Sender
@@ -124,8 +98,7 @@ command2([{Index, Pid} | Rest], Msg, Sender, VMaster,
 command2([{Index, Node} | Rest], Msg, Sender, VMaster,
          How) ->
     proxy_cast({VMaster, Node},
-               make_request(Msg, Sender, Index),
-               How),
+               make_request(Msg, Sender, Index), How),
     command2(Rest, Msg, Sender, VMaster, How);
 command2(DestTuple, Msg, Sender, VMaster, How)
     when is_tuple(DestTuple) ->
@@ -138,8 +111,7 @@ coverage(Msg, CoverageVNodes, Keyspaces,
          {Type, Ref, From}, VMaster)
     when is_list(CoverageVNodes) ->
     [proxy_cast({VMaster, Node},
-                make_coverage_request(Msg,
-                                      Keyspaces,
+                make_coverage_request(Msg, Keyspaces,
                                       {Type, {Ref, {Index, Node}}, From},
                                       Index))
      || {Index, Node} <- CoverageVNodes];
@@ -154,8 +126,7 @@ command_return_vnode({Index, Node}, Msg, Sender,
                      VMaster) ->
     Req = make_request(Msg, Sender, Index),
     Mod = vmaster_to_vmod(VMaster),
-    riak_core_vnode_proxy:command_return_vnode({Mod,
-                                                Index,
+    riak_core_vnode_proxy:command_return_vnode({Mod, Index,
                                                 Node},
                                                Req).
 
@@ -169,13 +140,12 @@ sync_command({Index, Node}, Msg, VMaster, Timeout) ->
     %% the From for handle_call so that the {reply} return gets
     %% sent here.
     Request = make_request(Msg,
-                           {server, undefined, undefined},
-                           Index),
+                           {server, undefined, undefined}, Index),
     case gen_server:call({VMaster, Node}, Request, Timeout)
         of
-        {vnode_error, {Error, _Args}} -> error(Error);
-        {vnode_error, Error} -> error(Error);
-        Else -> Else
+      {vnode_error, {Error, _Args}} -> error(Error);
+      {vnode_error, Error} -> error(Error);
+      Else -> Else
     end.
 
 %% Send a synchronous spawned command to an individual Index/Node combination.
@@ -183,15 +153,13 @@ sync_command({Index, Node}, Msg, VMaster, Timeout) ->
 %% continue to handle requests.
 sync_spawn_command({Index, Node}, Msg, VMaster) ->
     Request = make_request(Msg,
-                           {server, undefined, undefined},
-                           Index),
-    case gen_server:call({VMaster, Node},
-                         {spawn, Request},
+                           {server, undefined, undefined}, Index),
+    case gen_server:call({VMaster, Node}, {spawn, Request},
                          infinity)
         of
-        {vnode_error, {Error, _Args}} -> error(Error);
-        {vnode_error, Error} -> error(Error);
-        Else -> Else
+      {vnode_error, {Error, _Args}} -> error(Error);
+      {vnode_error, Error} -> error(Error);
+      Else -> Else
     end.
 
 %% Make a request record - exported for use by legacy modules
@@ -222,11 +190,8 @@ all_nodes(VNodeMod) ->
     [Pid || {_Mod, _Idx, Pid} <- VNodes].
 
 %% @private
-init([Service, VNodeMod, LegacyMod, _RegName]) ->
-    gen_server:cast(self(), {wait_for_service, Service}),
-    {ok,
-     #state{idxtab = undefined, vnode_mod = VNodeMod,
-            legacy = LegacyMod}}.
+init([VNodeMod, _RegName]) ->
+    {ok, #state{idxtab = undefined, vnode_mod = VNodeMod}}.
 
 proxy_cast(Who, Req) -> proxy_cast(Who, Req, normal).
 
@@ -253,10 +218,10 @@ send_an_event(Dest, Event, unreliable) ->
 
 handle_cast({wait_for_service, Service}, State) ->
     case Service of
-        undefined -> ok;
-        _ ->
-            logger:debug("Waiting for service: ~p", [Service]),
-            riak_core:wait_for_service(Service)
+      undefined -> ok;
+      _ ->
+          logger:debug("Waiting for service: ~p", [Service]),
+          riak_core:wait_for_service(Service)
     end,
     {noreply, State};
 handle_cast(Req = #riak_vnode_req_v1{index = Idx},
@@ -268,21 +233,13 @@ handle_cast(Req = #riak_coverage_req_v1{index = Idx},
             State = #state{vnode_mod = Mod}) ->
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     riak_core_vnode:send_req(Proxy, Req),
-    {noreply, State};
-handle_cast(Other, State = #state{legacy = Legacy})
-    when Legacy =/= undefined ->
-    case catch Legacy:rewrite_cast(Other) of
-        {ok, #riak_vnode_req_v1{} = Req} ->
-            handle_cast(Req, State);
-        _ -> {noreply, State}
-    end.
+    {noreply, State}.
 
 handle_call({return_vnode,
              Req = #riak_vnode_req_v1{index = Idx}},
             _From, State = #state{vnode_mod = Mod}) ->
     {ok, Pid} =
-        riak_core_vnode_proxy:command_return_vnode({Mod,
-                                                    Idx,
+        riak_core_vnode_proxy:command_return_vnode({Mod, Idx,
                                                     node()},
                                                    Req),
     {reply, {ok, Pid}, State};
@@ -292,8 +249,7 @@ handle_call(Req = #riak_vnode_req_v1{index = Idx,
     Proxy = riak_core_vnode_proxy:reg_name(Mod, Idx),
     riak_core_vnode:send_req(Proxy,
                              Req#riak_vnode_req_v1{sender =
-                                                       {server,
-                                                        undefined,
+                                                       {server, undefined,
                                                         From}}),
     {noreply, State};
 handle_call({spawn,
@@ -308,15 +264,7 @@ handle_call({spawn,
                                                                                     =
                                                                                     Sender})
                end),
-    {noreply, State};
-handle_call(Other, From,
-            State = #state{legacy = Legacy})
-    when Legacy =/= undefined ->
-    case catch Legacy:rewrite_call(Other, From) of
-        {ok, #riak_vnode_req_v1{} = Req} ->
-            handle_call(Req, From, State);
-        _ -> {noreply, State}
-    end.
+    {noreply, State}.
 
 handle_info(_Info, State) -> {noreply, State}.
 
