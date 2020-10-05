@@ -225,7 +225,8 @@ contains_name(Name, {SizeMap, _}) ->
 
 %% @doc Create a brand new ring. Initially each node contained in the weightlist
 %% owns exactly one section sized according to their weight.
--spec fresh(WeightMap :: owner_weight_list()) -> chash().
+-spec fresh(WeightMap ::
+                owner_weight_list()) -> chash().
 
 fresh(WeightMap) ->
     {chash_size_map_to_index_list(make_size_map(WeightMap)),
@@ -624,7 +625,8 @@ chash_index_list_to_gb_tree(IndexList) ->
 -spec chash_gb_next(index() | index_as_int(),
                     index_tree()) -> node_entry().
 
-chash_gb_next(X, {_, GbTree} = Tree) when is_integer(X) ->
+chash_gb_next(X, {_, GbTree} = Tree)
+    when is_integer(X) ->
     {0, ZeroNode} = gb_trees:smallest(Tree),
     chash_gb_next1(X, GbTree, true, ZeroNode);
 chash_gb_next(X, T) ->
@@ -633,22 +635,25 @@ chash_gb_next(X, T) ->
 %% @private
 %% @doc Return the entry associated with the given key according to chash
 %% semantics: The responsible node for the key is the one next on the ring.
--spec chash_gb_next1(X :: integer(),
-                     term(), boolean(), chash_node()) -> node_entry().
+-spec chash_gb_next1(X :: integer(), term(), boolean(),
+                     chash_node()) -> node_entry().
 
-chash_gb_next1(X, {Key, Val, Left, _Right}, _IsRoot, ZeroNode)
+chash_gb_next1(X, {Key, Val, Left, _Right}, _IsRoot,
+               ZeroNode)
     when X < Key ->
     case chash_gb_next1(X, Left, false, ZeroNode) of
       nil -> {Key, Val};
       Res -> Res
     end;
-chash_gb_next1(X, {Key, _Val, _Left, Right}, IsRoot, ZeroNode)
+chash_gb_next1(X, {Key, _Val, _Left, Right}, IsRoot,
+               ZeroNode)
     when X >= Key ->
-     case {chash_gb_next1(X, Right, false, ZeroNode), IsRoot} of
-         {nil, true} -> {0, ZeroNode};
-         {nil, false} -> nil;
-         {Res, _} -> Res
-     end;
+    case {chash_gb_next1(X, Right, false, ZeroNode), IsRoot}
+        of
+      {nil, true} -> {0, ZeroNode};
+      {nil, false} -> nil;
+      {Res, _} -> Res
+    end;
 chash_gb_next1(_X, nil, _, _ZeroNode) -> nil.
 
 %% ===================================================================

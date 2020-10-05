@@ -125,6 +125,7 @@
                            NextOwner :: node(), awaiting | complete} |
                           {undefined, undefined, undefined}.
 
+%% TODO marked for removal as resizing is no longer considered.
 -type resize_transfer() :: {{integer(), term()},
                             ordsets:ordset(node()), awaiting | complete}.
 
@@ -234,8 +235,8 @@ all_preflists(State, N) ->
                 || {I, _Owner} <- (?MODULE):all_owners(State)]].
 
 %% @doc For two rings, return the list of owners that have differing ownership.
--spec diff_nodes(chstate(), chstate()) -> [node()].
-%% node() not consistent with chash implementation
+-spec diff_nodes(chstate(),
+                 chstate()) -> [node()].%% node() not consistent with chash implementation
 
 %% TODO This only works for fixed sections. With random slicing this would most
 %% likely return the full set of nodes.
@@ -266,14 +267,14 @@ fresh() ->
 %% @doc Equivalent to fresh/0 but allows specification of the local node name.
 -spec fresh(NodeName :: term()) -> chstate().
 
-fresh(NodeName) ->
-    fresh(NodeName, [NodeName]).
+fresh(NodeName) -> fresh(NodeName, [NodeName]).
 
 %% @doc Equivalent to fresh/1 but allows specification of other nodes.
 %%      Called by fresh/1, and otherwise only intended for testing purposes.
 %%      The name of the local node needs to be the first entry in the list of
 %%      nodes.
--spec fresh(LocalName :: term(), Nodes :: [term()]) -> chstate().
+-spec fresh(LocalName :: term(),
+            Nodes :: [term()]) -> chstate().
 
 fresh(LocalName, Nodes = [LocalName | _]) ->
     VClock = vclock:increment(LocalName, vclock:fresh()),
@@ -295,6 +296,7 @@ fresh(LocalName, Nodes = [LocalName | _]) ->
 %% NOTE with random slicing this operation is not necessary anymore.
 %% TODO find out when resize is called
 %% - only called by riak_core_claimant:change/2 and quickcheck test.
+%% TODO marked for removal as resizing is no longer considered.
 resize(State, _NewRingSize) ->
     NewRing = lists:foldl(fun ({Idx, Owner}, RingAcc) ->
                                   chash:update(Idx, Owner, RingAcc)
@@ -515,8 +517,9 @@ responsible_index(ChashKey, #chstate{chring = Ring}) ->
 %%      for `CHashKey' in the future ring. For regular transitions
 %%      the returned index will always be `OrigIdx'. If the ring is
 %%      resizing the index may be different
--spec future_index(CHashKey :: chash:index(), OridIdx:: integer(),
-                   State :: chstate()) -> integer() | undefined.
+-spec future_index(CHashKey :: chash:index(),
+                   OridIdx :: integer(), State :: chstate()) -> integer() |
+                                                                undefined.
 
 future_index(CHashKey, OrigIdx, State) ->
     future_index(CHashKey, OrigIdx, undefined, State).
@@ -527,9 +530,10 @@ future_index(CHashKey, OrigIdx, State) ->
 %% @param NValCheck Upper bound for N if defined.
 %% @returns The future index if it is valid, else `undefined'.
 %% @see future_index/3
--spec future_index(CHashKey :: chash:index(), OrigIdx :: integer(),
-                   NValCheck :: undefined | integer(), State :: chstate()) -> integer() |
-                                                        undefined.
+-spec future_index(CHashKey :: chash:index(),
+                   OrigIdx :: integer(),
+                   NValCheck :: undefined | integer(),
+                   State :: chstate()) -> integer() | undefined.
 
 future_index(CHashKey, OrigIdx, NValCheck, State) ->
     OrigCount = num_partitions(State),
@@ -545,7 +549,11 @@ future_index(CHashKey, OrigIdx, NValCheck, State) ->
 %% @param NextCount Number of partitions in the future ring.
 %% @returns The future index if it is valid, else `undefined'.
 %% @see future_index/3
--spec future_index(CHashKey :: chash:index(), OrigIdx :: integer(), NValCheck :: undefined | integer(), OrigCount :: pos_integer(), NextCount :: pos_integer()) -> integer() | undefined.
+-spec future_index(CHashKey :: chash:index(),
+                   OrigIdx :: integer(),
+                   NValCheck :: undefined | integer(),
+                   OrigCount :: pos_integer(),
+                   NextCount :: pos_integer()) -> integer() | undefined.
 
 future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
              NextCount) ->
@@ -953,6 +961,7 @@ disowning_indices(State, Node) ->
 -spec disowned_during_resize(chstate(), integer(),
                              node()) -> boolean().
 
+%% TODO marked for removal as resizing is no longer considered.
 disowned_during_resize(CState, Idx, Owner) ->
     %% catch error when index doesn't exist, we are disowning it if its going
     %% away
@@ -985,6 +994,7 @@ set_pending_changes(State, Transfers) ->
 -spec set_pending_resize(chstate(),
                          chstate()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 set_pending_resize(Resizing, Orig) ->
     %% all existing indexes must transfer data when the ring is being resized
     Next = [{Idx, Owner, '$resize', [], awaiting}
@@ -1023,6 +1033,7 @@ set_pending_resize(Resizing, Orig) ->
 -spec maybe_abort_resize(chstate()) -> {boolean(),
                                         chstate()}.
 
+%% TODO marked for removal as resizing is no longer considered.
 maybe_abort_resize(State) ->
     Resizing = is_resizing(State),
     PostResize = is_post_resize(State),
@@ -1041,6 +1052,7 @@ maybe_abort_resize(State) ->
 %% @doc Set the resize abort value to true.
 -spec set_pending_resize_abort(chstate()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 set_pending_resize_abort(State) ->
     update_meta('$resized_ring_abort', true, State).
 
@@ -1049,6 +1061,7 @@ set_pending_resize_abort(State) ->
                                {integer(), term()},
                                integer() | {integer(), term()}) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 schedule_resize_transfer(State, Source, TargetIdx)
     when is_integer(TargetIdx) ->
     TargetNode = index_owner(future_ring(State), TargetIdx),
@@ -1071,6 +1084,7 @@ schedule_resize_transfer(State, Source, Target) ->
 -spec reschedule_resize_transfers(chstate(), term(),
                                   term()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 reschedule_resize_transfers(State = #chstate{next =
                                                  Next},
                             Node, NewNode) ->
@@ -1088,6 +1102,7 @@ reschedule_resize_transfers(State = #chstate{next =
 -spec reschedule_resize_operation(pos_integer(), term(),
                                   term(), chstate()) -> {term(), chstate()}.
 
+%% TODO marked for removal as resizing is no longer considered.
 reschedule_resize_operation(N, NewNode,
                             {Idx, N, '$resize', _Mods, _Status}, State) ->
     NewEntry = {Idx, NewNode, '$resize', ordsets:new(),
@@ -1120,6 +1135,7 @@ reschedule_resize_operation(Node, NewNode,
                                           term(), term(),
                                           chstate()) -> {boolean(), chstate()}.
 
+%% TODO marked for removal as resizing is no longer considered.
 reschedule_inbound_resize_transfers(Source, Node,
                                     NewNode, State) ->
     F = fun (Transfer, Acc) ->
@@ -1140,8 +1156,14 @@ reschedule_inbound_resize_transfers(Source, Node,
 %% @param NewNode Name of the node the resize is to be rescheduled on.
 %% @returns `{Transfer, false}' if the transfer is not scheduled for the target,
 %%          `{NewTransfer, true}' otherwise.
--spec reschedule_inbound_resize_transfer(Transfer :: resize_transfer(), Target :: term(), NewNode :: term()) -> {resize_transfer(), boolean()}.
+-spec reschedule_inbound_resize_transfer(Transfer ::
+                                             resize_transfer(),
+                                         Target :: term(),
+                                         NewNode ::
+                                             term()) -> {resize_transfer(),
+                                                         boolean()}.
 
+%% TODO marked for removal as resizing is no longer considered.
 reschedule_inbound_resize_transfer({{Idx, Target}, _,
                                     _},
                                    Target, NewNode) ->
@@ -1155,8 +1177,12 @@ reschedule_inbound_resize_transfer(Transfer, _, _) ->
 %% @param Node Name of the source.
 %% @param NewNode Name of the source the transfer should be rescheduled to.
 %% @returns New `chstate()' after the rescheduling.
--spec reschedule_outbound_resize_transfers(State :: chstate(), Idx :: integer(), Node :: term(), NewNode :: term()) -> chstate().
+-spec reschedule_outbound_resize_transfers(State ::
+                                               chstate(),
+                                           Idx :: integer(), Node :: term(),
+                                           NewNode :: term()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 reschedule_outbound_resize_transfers(State, Idx, Node,
                                      NewNode) ->
     OldSource = {Idx, Node},
@@ -1179,6 +1205,7 @@ reschedule_outbound_resize_transfers(State, Idx, Node,
                                                                 term()} |
                                                                undefined.
 
+%% TODO marked for removal as resizing is no longer considered.
 awaiting_resize_transfer(State, Source, Mod) ->
     ResizeTransfers = resize_transfers(State, Source),
     Awaiting = [{Target, Mods, Status}
@@ -1197,6 +1224,7 @@ awaiting_resize_transfer(State, Source, Mod) ->
                              {integer(), term()}, {integer(), term()},
                              atom()) -> awaiting | complete | undefined.
 
+%% TODO marked for removal as resizing is no longer considered.
 resize_transfer_status(State, Source, Target, Mod) ->
     ResizeTransfers = resize_transfers(State, Source),
     IsComplete = case lists:keyfind(Target, 1,
@@ -1222,6 +1250,7 @@ resize_transfer_status(State, Source, Target, Mod) ->
                                {integer(), term()}, {integer(), term()},
                                atom()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 resize_transfer_complete(State, {SrcIdx, _} = Source,
                          Target, Mod) ->
     ResizeTransfers = resize_transfers(State, Source),
@@ -1259,6 +1288,7 @@ resize_transfer_complete(State, {SrcIdx, _} = Source,
 %% @returns A boolean indicating the resizing status.
 -spec is_resizing(State :: chstate()) -> boolean().
 
+%% TODO marked for removal as resizing is no longer considered.
 is_resizing(State) ->
     case resized_ring(State) of
       undefined -> false;
@@ -1270,6 +1300,7 @@ is_resizing(State) ->
 %% @returns A boolean indicating the post_resize status.
 -spec is_post_resize(State :: chstate()) -> boolean().
 
+%% TODO marked for removal as resizing is no longer considered.
 is_post_resize(State) ->
     case get_meta('$resized_ring', State) of
       {ok, '$cleanup'} -> true;
@@ -1279,8 +1310,10 @@ is_post_resize(State) ->
 %% @doc Check if a resize operation is aborted on a given ring.
 %% @param State State to be checked.
 %% @returns A boolean indicating if the resize is aborted.
--spec is_resize_aborted(State :: chstate()) -> boolean().
+-spec is_resize_aborted(State ::
+                            chstate()) -> boolean().
 
+%% TODO marked for removal as resizing is no longer considered.
 is_resize_aborted(State) ->
     case get_meta('$resized_ring_abort', State) of
       {ok, true} -> true;
@@ -1290,8 +1323,10 @@ is_resize_aborted(State) ->
 %% @doc Check if a resize operation is complete on a given ring.
 %% @param State State to be checked.
 %% @returns A boolean indicating if the resize is complete.
--spec is_resize_complete(State :: chstate()) -> boolean().
+-spec is_resize_complete(State ::
+                             chstate()) -> boolean().
 
+%% TODO marked for removal as resizing is no longer considered.
 is_resize_complete(#chstate{next = Next}) ->
     not
       lists:any(fun ({_, _, _, _, awaiting}) -> true;
@@ -1305,8 +1340,11 @@ is_resize_complete(#chstate{next = Next}) ->
 %% @param Source Source of the transfers to be checked.
 %% @param Mod Vnode module involved in the transfer.
 %% @returns List of targets of completed transfers.
--spec complete_resize_transfers(State :: chstate(), Source :: {integer(), term()}, Mod :: atom()) -> [{integer(), term()}].
+-spec complete_resize_transfers(State :: chstate(),
+                                Source :: {integer(), term()},
+                                Mod :: atom()) -> [{integer(), term()}].
 
+%% TODO marked for removal as resizing is no longer considered.
 complete_resize_transfers(State, Source, Mod) ->
     [Target
      || {Target, Mods, Status}
@@ -1321,8 +1359,8 @@ complete_resize_transfers(State, Source, Mod) ->
 %% @param Mod VNode module to be marked as transferred.
 %% @returns Te updated state where the module is marked as transferred and the
 %%          status of the next owners for the given index is updated.
--spec deletion_complete(State :: chstate(), Idx :: integer(),
-                        Mod :: atom()) -> chstate().
+-spec deletion_complete(State :: chstate(),
+                        Idx :: integer(), Mod :: atom()) -> chstate().
 
 deletion_complete(State, Idx, Mod) ->
     transfer_complete(State, Idx, Mod).
@@ -1331,8 +1369,10 @@ deletion_complete(State, Idx, Mod) ->
 %% @param State State to work on.
 %% @param Source Source of the transfers.
 %% @returns List of all resize transfers coming from `Source'.
--spec resize_transfers(State :: chstate(), Source :: {integer(), term()}) -> [resize_transfer()].
+-spec resize_transfers(State :: chstate(),
+                       Source :: {integer(), term()}) -> [resize_transfer()].
 
+%% TODO marked for removal as resizing is no longer considered.
 resize_transfers(State, Source) ->
     {ok, Transfers} = get_meta({resize, Source}, [], State),
     Transfers.
@@ -1346,14 +1386,17 @@ resize_transfers(State, Source) ->
                            Source :: {integer(), term()},
                            Transfers :: [resize_transfer()]) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 set_resize_transfers(State, Source, Transfers) ->
     update_meta({resize, Source}, Transfers, State).
 
 %% @doc Clear all resize transfers for all sources on the state.
 %% @param State State to work on.
 %% @returns Updated state.
--spec clear_all_resize_transfers(State :: chstate()) -> chstate().
+-spec clear_all_resize_transfers(State ::
+                                     chstate()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 clear_all_resize_transfers(State) ->
     lists:foldl(fun clear_resize_transfers/2, State,
                 all_owners(State)).
@@ -1362,8 +1405,11 @@ clear_all_resize_transfers(State) ->
 %% @param Source Source all transfers should be cleared for.
 %% @param State State to work on.
 %% @returns Updated state.
--spec clear_resize_transfers(Source :: {integer(), term()}, State :: chstate()) -> chstate().
+-spec clear_resize_transfers(Source :: {integer(),
+                                        term()},
+                             State :: chstate()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 clear_resize_transfers(Source, State) ->
     remove_meta({resize, Source}, State).
 
@@ -1372,9 +1418,11 @@ clear_resize_transfers(Source, State) ->
 %% @param State State to work on.
 %% @returns Raw chash ring if a resize operation is ongoing, `undefined'
 %%          otherwise.
--spec resized_ring(State :: chstate()) -> {ok, chash:chash()} |
-                                 undefined.
+-spec resized_ring(State :: chstate()) -> {ok,
+                                           chash:chash()} |
+                                          undefined.
 
+%% TODO marked for removal as resizing is no longer considered.
 resized_ring(State) ->
     case get_meta('$resized_ring', State) of
       {ok, '$cleanup'} -> {ok, State#chstate.chring};
@@ -1389,14 +1437,17 @@ resized_ring(State) ->
 -spec set_resized_ring(State :: chstate(),
                        FutureCHash :: chash:chash()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 set_resized_ring(State, FutureCHash) ->
     update_meta('$resized_ring', FutureCHash, State).
 
 %% @doc Mark the resize as completed and start cleaning up.
 %% @param State State to work on.
 %% @returns Updated state.
--spec cleanup_after_resize(State :: chstate()) -> chstate().
+-spec cleanup_after_resize(State ::
+                               chstate()) -> chstate().
 
+%% TODO marked for removal as resizing is no longer considered.
 cleanup_after_resize(State) ->
     update_meta('$resized_ring', '$cleanup', State).
 
@@ -1419,7 +1470,9 @@ vnode_type(State, Idx) ->
 %% @returns Type of the virtual node. If the owner of the index is the given
 %%          `Node' `primary', otherwise `future_primary' or fallback. If the
 %%          index cannot be found it must be `resized_primary'.
--spec vnode_type(State :: chstate(), Idx :: integer(), Node :: term()) -> primary | {fallback, term()} | future_primary | resized_primary.
+-spec vnode_type(State :: chstate(), Idx :: integer(),
+                 Node :: term()) -> primary | {fallback, term()} |
+                                    future_primary | resized_primary.
 
 vnode_type(State, Idx, Node) ->
     try index_owner(State, Idx) of
@@ -1458,7 +1511,8 @@ next_owner(State, Idx, Mod) ->
 %% @param Mod VNode module to be considered in the transfer.
 %% @returns Pair of owner and next owner and the transfer status.
 %% TODO specify type for next owner entries.
--spec next_owner_status(NInfo :: term() | false, Mod :: atom()) -> pending_change().
+-spec next_owner_status(NInfo :: term() | false,
+                        Mod :: atom()) -> pending_change().
 
 next_owner_status(NInfo, Mod) ->
     case NInfo of
@@ -1482,7 +1536,9 @@ next_owner({_, Owner, NextOwner, _Transfers, Status}) ->
 %% @param State State to work on.
 %% @returns List of tuples containing index, owner, and next owner for completed
 %%          transfers.
--spec completed_next_owners(Mod :: module(), State :: chstate()) -> [{integer(), term(), term()}].
+-spec completed_next_owners(Mod :: module(),
+                            State :: chstate()) -> [{integer(), term(),
+                                                     term()}].
 
 completed_next_owners(Mod, #chstate{next = Next}) ->
     [{Idx, O, NO}
@@ -1519,11 +1575,11 @@ ring_ready() ->
     {ok, Ring} = riak_core_ring_manager:get_raw_ring(),
     ring_ready(Ring).
 
-
 %% @doc Compute a list of all seen with an outdated vector clock.
 %% @param State0 State to work on.
 %% @returns List of all seen entries with an outdated vector clock.
--spec ring_ready_info(State0 :: chstate()) -> [{term(), vclock:vclock()}].
+-spec ring_ready_info(State0 :: chstate()) -> [{term(),
+                                                vclock:vclock()}].
 
 ring_ready_info(State0) ->
     Owner = owner_node(State0),
@@ -1556,7 +1612,8 @@ handoff_complete(State, Idx, Mod) ->
 %% @param Node Node for which the ring has changed.
 %% @param State State to work on.
 %% @return Updated state.
--spec ring_changed(Node :: term(), State :: chstate()) -> chstate().
+-spec ring_changed(Node :: term(),
+                   State :: chstate()) -> chstate().
 
 ring_changed(Node, State) ->
     check_tainted(State,
@@ -1576,7 +1633,8 @@ future_ring(State) ->
 %% @param State State to work on.
 %% @param IsResizing Flag showing if the ring is currently resizing.
 %% @returns The future ring depending on the resizing flag.
--spec future_ring(State :: chstate, IsResizing :: boolean()) -> chstate().
+-spec future_ring(State :: chstate,
+                  IsResizing :: boolean()) -> chstate().
 
 future_ring(State, false) ->
     FutureState = change_owners(State,
@@ -1628,7 +1686,8 @@ future_ring(State0 = #chstate{next = OldNext}, true) ->
 %% @param Ring The ring to be printed.
 %% @param Opts Options determining the layout and contents of the output.
 %% @returns `ok'.
--spec pretty_print(Ring :: chstate(), Opts :: [term()]) -> ok.
+-spec pretty_print(Ring :: chstate(),
+                   Opts :: [term()]) -> ok.
 
 pretty_print(Ring, Opts) ->
     OptNumeric = lists:member(numeric, Opts),
@@ -2300,6 +2359,7 @@ reconcile_next_test() ->
     ?assertEqual(Next6,
                  (reconcile_divergent_next(Next4, Next5))).
 
+%% TODO marked for removal as resizing is no longer considered.
 resize_test() ->
     Ring0 = fresh(4, a),
     Ring1 = resize(Ring0, 8),
@@ -2323,6 +2383,7 @@ resize_test() ->
     ?assertEqual((element(1, hd(preflist(Key, Ring2)))),
                  (future_index(Key, OrigIdx, undefined, Ring3))).
 
+%% TODO marked for removal as resizing is no longer considered.
 resize_xfer_test_() ->
     {setup,
      fun () ->
@@ -2336,6 +2397,7 @@ resize_xfer_test_() ->
      end,
      fun (_) -> meck:unload() end, fun test_resize_xfers/0}.
 
+%% TODO marked for removal as resizing is no longer considered.
 test_resize_xfers() ->
     Ring0 = riak_core_ring:fresh(a),
     Ring1 = set_pending_resize(resize(Ring0, 8), Ring0),

@@ -215,8 +215,8 @@ itr_value(#iterator{pos = Pos,
     BitSize = hash:out_size(),
     EntryBytes = (BitSize + 16) div 8,
     EntireSize = EntryBytes * Pos,
-    <<_:EntireSize/binary-unit:8,
-      Idx:BitSize/integer, Id:16/integer, _/binary>> =
+    <<_:EntireSize/binary-unit:8, Idx:BitSize/integer,
+      Id:16/integer, _/binary>> =
         Bin,
     Owner = element(Id, Nodes),
     {Idx, Owner}.
@@ -247,16 +247,16 @@ itr_pop(N, Itr = #iterator{pos = Pos, chbin = CHBin}) ->
     #chashbin{size = Size, owners = Bin, nodes = Nodes} =
         CHBin,
     L = case Bin of
-          <<_:(PosBytes)/binary-unit:8,
-            Bin2:(NBytes)/binary-unit:8, _/binary>> ->
+          <<_:PosBytes/binary-unit:8, Bin2:NBytes/binary-unit:8,
+            _/binary>> ->
               [{Idx, element(Id, Nodes)}
                || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2];
           _ ->
-              Left = (N + Pos - Size),
+              Left = N + Pos - Size,
               LeftBytes = Left * EntryBytes,
               SkipBytes = (Pos - Left) * EntryBytes,
-              <<Bin3:(LeftBytes)/binary-unit:8,
-                _:(SkipBytes)/binary-unit:8, Bin2/binary>> =
+              <<Bin3:LeftBytes/binary-unit:8,
+                _:SkipBytes/binary-unit:8, Bin2/binary>> =
                   Bin,
               L1 = [{Idx, element(Id, Nodes)}
                     || <<Idx:BitSize/integer, Id:16/integer>> <= Bin2],

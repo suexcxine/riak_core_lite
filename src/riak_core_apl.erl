@@ -333,8 +333,8 @@ four_node_test() ->
 
 %% Create a perfect ring - RingSize must be a multiple of nodes
 perfect_ring([H | _] = Nodes) ->
-    Ring = riak_core_ring:fresh(H, Nodes),
-    Ring.
+    Ring = riak_core_ring:fresh(H, Nodes), Ring.
+
     % Owners = riak_core_ring:all_owners(Ring),
     % TransferNode = fun ({Idx, _CurOwner},
     %                     {Ring0, [NewOwner | Rest]}) ->
