@@ -31,11 +31,7 @@
 -include("riak_core_handoff.hrl").
 
 -define(CHILD(I, Type),
-        {I,
-         {I, start_link, []},
-         temporary,
-         brutal_kill,
-         Type,
+        {I, {I, start_link, []}, temporary, brutal_kill, Type,
          [I]}).
 
 %%%===================================================================

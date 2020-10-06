@@ -667,8 +667,7 @@ apply_changes(Ring, Changes) ->
                                   RingAcc3 = change({Cmd, Node}, RingAcc2),
                                   RingAcc3
                           end,
-                          Ring,
-                          Changes),
+                          Ring, Changes),
     NewRing.
 
 %% @private
@@ -1038,20 +1037,20 @@ reassign_indices(CState, Replacing, Seed, Log) ->
                           end,
                           CState, Invalid),
     CState3 = case Next of
-                  [] ->
-                      Leaving = riak_core_ring:members(CState, [leaving]),
-                      lists:foldl(fun (Node, CState0) ->
+                [] ->
+                    Leaving = riak_core_ring:members(CState, [leaving]),
+                    lists:foldl(fun (Node, CState0) ->
                                         remove_node(CState0, Node, leaving,
                                                     Replacing, Seed, Log)
-                                  end,
+                                end,
                                 CState2, Leaving);
-                  _ -> CState2
+                _ -> CState2
               end,
     Owners1 = riak_core_ring:all_owners(CState),
     Owners2 = riak_core_ring:all_owners(CState3),
     RingChanged = Owners1 /= Owners2,
     NextChanged = Next /=
-                      riak_core_ring:pending_changes(CState3),
+                    riak_core_ring:pending_changes(CState3),
     {RingChanged or NextChanged, CState3}.
 
 %% @private
@@ -1116,19 +1115,19 @@ remove_node(CState, Node, Status, Replacing, Seed, Log,
     CStateT1 = riak_core_ring:change_owners(CState,
                                             riak_core_ring:all_next_owners(CState)),
     case orddict:find(Node, Replacing) of
-        {ok, NewNode} ->
-            CStateT2 = reassign_indices_to(Node, NewNode, CStateT1);
-        error ->
-            CStateT2 =
+      {ok, NewNode} ->
+          CStateT2 = reassign_indices_to(Node, NewNode, CStateT1);
+      error ->
+          CStateT2 =
               riak_core_gossip:remove_from_cluster(CStateT1, Node,
-                                                     Seed)
+                                                   Seed)
     end,
     Owners1 = riak_core_ring:all_owners(CState),
     Owners2 = riak_core_ring:all_owners(CStateT2),
     Owners3 = lists:zip(Owners1, Owners2),
     RemovedIndices = case Status of
-                         invalid -> Indices;
-                         leaving -> []
+                       invalid -> Indices;
+                       leaving -> []
                      end,
     Reassign = [{Idx, NewOwner}
                 || {Idx, NewOwner} <- Owners2,

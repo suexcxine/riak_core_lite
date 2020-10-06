@@ -22,10 +22,8 @@
 
 -module(riak_core_send_msg).
 
--export([reply_unreliable/2,
-         cast_unreliable/2,
-         send_event_unreliable/2,
-         bang_unreliable/2]).
+-export([reply_unreliable/2, cast_unreliable/2,
+         send_event_unreliable/2, bang_unreliable/2]).
 
 -ifdef(TEST).
 
@@ -59,8 +57,7 @@ send_event_unreliable({via, _Module, _Name} = ViaTo,
                       Event) ->
     erlang:error({unimplemented_send, ViaTo, Event});
 send_event_unreliable(Name, Event) ->
-    bang_unreliable(Name, {'$gen_event', Event}),
-    ok.
+    bang_unreliable(Name, {'$gen_event', Event}), ok.
 
 bang_unreliable(Dest, Msg) ->
     catch erlang:send(Dest, Msg, [noconnect, nosuspend]),
