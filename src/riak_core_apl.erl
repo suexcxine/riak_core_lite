@@ -215,6 +215,10 @@ offline_owners(Service) ->
     {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
     offline_owners(Service, CHBin).
 
+%% @doc Returns list of all owners that are curently not up.
+-spec offline_owners(atom() | [node()],
+                     CHBin :: chashbin()) -> [{index(), node()}].
+
 offline_owners(Service, CHBin) when is_atom(Service) ->
     UpSet =
         ordsets:from_list(riak_core_node_watcher:nodes(Service)),
@@ -296,6 +300,10 @@ apl_with_partition_nums(Apl, Size) ->
        Node},
       Ann}
      || {{Hash, Node}, Ann} <- Apl].
+
+%% ===================================================================
+%% EUnit tests
+%% ===================================================================
 
 -ifdef(TEST).
 
