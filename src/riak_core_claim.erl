@@ -48,6 +48,7 @@
 %% and they will all exist near the origin point of the ring.
 
 -module(riak_core_claim).
+%% documentation status: done
 
 -type ring() :: riak_core_ring:riak_core_ring().
 

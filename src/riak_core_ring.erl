@@ -27,6 +27,7 @@
 %%      view of node/partition ownership.
 
 -module(riak_core_ring).
+%% documentation status: done
 
 -export([all_members/1, all_owners/1, all_preflists/2,
          diff_nodes/2, equal_rings/2, fresh/0, fresh/1, fresh/2,
