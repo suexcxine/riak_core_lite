@@ -21,6 +21,7 @@
 %% -------------------------------------------------------------------
 
 -module(riak_core_app).
+
 %% documentation status: done
 
 -behaviour(application).
