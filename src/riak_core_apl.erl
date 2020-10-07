@@ -23,6 +23,7 @@
 %% substituted.
 %% -------------------------------------------------------------------
 -module(riak_core_apl).
+
 %% documentation status: done
 
 -export([active_owners/1, active_owners/2, get_apl/3,
