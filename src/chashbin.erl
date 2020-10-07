@@ -253,7 +253,7 @@ create_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
     create_bin(Owners, Nodes, Bin2).
 
 %% @private
-%% @docConvert ring index into ring position
+%% @doc Convert ring index into ring position
 -spec index_position(Index :: index() | <<_:160>>,
                      CHBin :: chashbin()) -> integer().
 
