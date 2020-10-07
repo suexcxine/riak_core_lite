@@ -35,6 +35,7 @@
 %% New York, NY, USA
 
 -module(chash).
+%% documentation satus: done
 
 -export([contains_name/2, fresh/2, lookup/2, key_of/1,
          members/1, merge_rings/2, next_index/2, nodes/1,
