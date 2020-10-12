@@ -143,8 +143,8 @@ make_size_map(NewOwnerWeights) ->
                     owner_weight_list()) -> size_map().
 
 make_size_map([], NewOwnerWeights) ->
-    make_size_map2([{unused, hash:max_integer()}],
-                   NewOwnerWeights, NewOwnerWeights);
+    make_size_map([{unused, hash:max_integer()}],
+                  NewOwnerWeights);
 make_size_map(OldSizeMap, NewOwnerWeights) ->
     NewSum = add_all_weights(NewOwnerWeights),
     %% Reconstruct old owner weights (should sum up to hash:max_integer())
@@ -176,7 +176,7 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
                                       % balancing issues caused by simply
                                       % truncating.
                                       {Ch, trunc(Factor * NewWt) - OldWt};
-                                  error -> {Ch, round(Factor * NewWt)}
+                                  error -> {Ch, trunc(Factor * NewWt)}
                                 end
                         end,
                         NewOwnerWeights),
@@ -210,8 +210,8 @@ query_tree(Val, Tree, ZeroNode) ->
 -spec contains_name(Name :: chash_node(),
                     CHash :: chash()) -> boolean().
 
-contains_name(Name, {SizeMap, _}) ->
-    lists:keymember(Name, 2, SizeMap).
+contains_name(Name, {IndexList, _}) ->
+    lists:keymember(Name, 2, IndexList).
 
 %% @doc Create a brand new ring. Initially each node contained in the weightlist
 %% owns exactly one section sized according to their weight.
@@ -588,8 +588,8 @@ collapse_unused_in_size_map([]) -> [].
 -spec chash_size_map_to_index_list(SizeMap ::
                                        size_map()) -> index_list().
 
-chash_size_map_to_index_list(SizeMap)
-    when length(SizeMap) > 0 ->
+chash_size_map_to_index_list([]) -> [];
+chash_size_map_to_index_list(SizeMap) ->
     {_Sum, NFs0} = lists:foldl(fun ({Name, Size},
                                     {Sum, List}) ->
                                        {Sum + Size, [{Sum, Name} | List]}
@@ -680,7 +680,7 @@ update_test() ->
         update(ThirdIndex, NewNode, CHash).
 
 contains_test() ->
-    CHash = chash:fresh(8, the_node),
+    CHash = chash:fresh([{the_node, 1}]),
     ?assertEqual(true, (contains_name(the_node, CHash))),
     ?assertEqual(false,
                  (contains_name(some_other_node, CHash))).

@@ -302,7 +302,7 @@ smallest_test() ->
 
 four_node_test() ->
     Nodes = [nodea, nodeb, nodec, noded],
-    Ring = perfect_ring(8, Nodes),
+    Ring = perfect_ring(Nodes),
     ?assertEqual([{0, nodea},
                   {182687704666362864775460604089535377456991567872,
                    nodeb},
