@@ -58,8 +58,7 @@
 
 %% -compile(export_all).
 -export([make_size_map/1, make_size_map/2, make_tree/1,
-         query_tree/2, hash_binary_via_size_map/2,
-         hash_binary_via_index_tree/2]).
+         query_tree/3]).
 
 %% chash API
 -export([contains_name/2, fresh/1, lookup/2,
@@ -93,8 +92,8 @@
 
 %% We can't use gb_trees:tree() because 'nil' (the empty tree) is
 %% never valid in our case.  But teaching Dialyzer that is difficult.
--type index_tree() :: gb_trees:tree(index_as_int(),
-                                    chash_node()).
+-opaque index_tree() :: gb_trees:tree(index_as_int(),
+                                      chash_node()).
 
 %% Mapping of an owner to its relative weight.
 -type owner_weight() :: {chash_node(), weight()}.
@@ -114,13 +113,14 @@
 %% Size of hash:out_size().
 -type index() :: binary().
 
--type index_as_int() :: pos_integer().
+-type index_as_int() :: non_neg_integer().
 
 %% A single node is identified by its term and starting index.
 -type node_entry() :: {index_as_int(), chash_node()}.
 
 %% chash API
--export_type([chash/0, index/0, index_as_int/0]).
+-export_type([chash/0, index/0, index_as_int/0,
+              index_tree/0]).
 
 %% ===================================================================
 %% Public API
@@ -187,32 +187,22 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
 -spec make_tree(size_map()) -> index_tree().
 
 make_tree(Map) ->
-    chash_index_list_to_gb_tree(chash_size_map_to_index_list(Map)).
+    chash_index_list_to_index_tree(chash_size_map_to_index_list(Map)).
 
 %% @doc Low-level function for querying a size tree: the (integer) point within
-%% the hash space.
--spec query_tree(index() | index_as_int(),
-                 index_tree()) -> node_entry().
+%%      the hash space.
+%% @param Val Hash value to look up.
+%% @param Tree Tree to query.
+%% @param ZeroNode Node owning the index `0'. Needed for corner cases.
+-spec query_tree(Val :: index() | index_as_int(),
+                 Tree :: index_tree(),
+                 ZeroNode :: chash_node()) -> node_entry().
 
-query_tree(Val, Tree) when is_integer(Val) ->
-    chash_gb_next(Val rem hash:max_integer(), Tree);
-query_tree(Val, Tree) ->
-    query_tree(hash:as_integer(Val), Tree).
-
-%% @doc Query an index map with a binary (inefficient).
--spec hash_binary_via_size_map(binary(),
-                               size_map()) -> node_entry().
-
-hash_binary_via_size_map(Key, Map) ->
-    Tree = make_tree(Map),
-    query_tree(hash:as_integer(hash:hash(Key)), Tree).
-
-%% @doc Query a float tree with a binary.
--spec hash_binary_via_index_tree(binary(),
-                                 index_tree()) -> node_entry().
-
-hash_binary_via_index_tree(Key, Tree) ->
-    query_tree(hash:as_integer(hash:hash(Key)), Tree).
+query_tree(Val, Tree, ZeroNode) when is_integer(Val) ->
+    chash_gb_next(Val rem hash:max_integer(), Tree,
+                  ZeroNode);
+query_tree(Val, Tree, ZeroNode) ->
+    query_tree(hash:as_integer(Val), Tree, ZeroNode).
 
 %% =================== CONSISTENT HASHING ============================
 
@@ -252,9 +242,10 @@ lookup_node_entry(Index, CHash)
     lookup_node_entry(hash:as_integer(Index), CHash);
 lookup_node_entry(Index, {NextList, stale}) ->
     lookup_node_entry(Index,
-                      {NextList, chash_index_list_to_gb_tree(NextList)});
-lookup_node_entry(Index, {_, FloatTree} = CHash) ->
-    {query_tree(Index, FloatTree), CHash}.
+                      {NextList, chash_index_list_to_index_tree(NextList)});
+lookup_node_entry(Index,
+                  {[{0, ZeroNode} | _], FloatTree} = CHash) ->
+    {query_tree(Index, FloatTree, ZeroNode), CHash}.
 
 %% @doc Given any term used to name an object, produce that object's key
 %%      into the ring.  Two names with the same SHA-1 hash value are
@@ -276,14 +267,17 @@ members({NextList, _}) ->
                  CHash :: chash()) -> index_as_int().
 
 next_index(IntegerKey, {IndexList, stale}) ->
-    next_index(IntegerKey, make_tree(IndexList));
-next_index(IntegerKey, {_IndexList, IndexTree}) ->
+    next_index(IntegerKey,
+               {IndexList, chash_index_list_to_index_tree(IndexList)});
+next_index(IntegerKey,
+           {[{0, ZeroNode} | _], IndexTree}) ->
     %% TODO
     %% Since there is no ring structure there is no simple next index. The next
     %% index is determined by the replication strategy.
     %% Used to
     %% - find the integer partition index of a key
-    {Index, _Node} = query_tree(IntegerKey, IndexTree),
+    {Index, _Node} = query_tree(IntegerKey, IndexTree,
+                                ZeroNode),
     Index.
 
 %% @doc Return the entire set of NodeEntries in the ring.
@@ -293,11 +287,14 @@ nodes(CHash) -> {NextList, _} = CHash, NextList.
 
 %% @doc Return the distance of the index of the segment belonging to the given
 %% key to the index of the next segment
--spec node_size(Index :: index() | index_as_int(),
+-spec node_size(Index :: index_as_int(),
                 CHash :: chash()) -> pos_integer().
 
-node_size(Index, {IndexList, _Tree}) ->
-    node_size(Index, IndexList, 0).
+node_size(Index, {IndexList, _Tree})
+    when is_integer(Index) ->
+    node_size(Index, IndexList, 0);
+node_size(Index, CHash) ->
+    node_size(hash:as_integer(Index), CHash).
 
 %% @doc Return a list of section sizes as integers.
 -spec offsets(CHash :: chash()) -> [index_as_int()].
@@ -350,7 +347,7 @@ predecessors(Index, CHash, N) ->
 %% @doc Return increment between ring indexes given
 %% the number of ring partitions.
 -spec ring_increment(NumPartitions ::
-                         pos_integer()) -> pos_integer().
+                         pos_integer()) -> 1.
 
 ring_increment(_NumPartitions) ->
     %% TODO
@@ -361,7 +358,7 @@ ring_increment(_NumPartitions) ->
     %% - determine partition ID in riak_core_ring_util
     %% - To help compute the future ring in riak_core_ring
     %% - Various test scenarios
-    0.
+    1.
 
 %% @doc Return the number of partitions in the ring.
 -spec size(CHash :: chash()) -> integer().
@@ -453,9 +450,9 @@ ordered_from(Index, {Nodes, _}) ->
 %% @private
 %% @doc Helper function to find the node size. Assumes that the IndexList is
 %% ordered by index and the first entry has index 0.
--spec node_size(Index :: index(),
+-spec node_size(Index :: index_as_int(),
                 IndexList :: index_list(),
-                Start :: index()) -> integer().
+                Start :: index_as_int()) -> integer().
 
 node_size(_Index, [], Start) ->
     %% Index in last section
@@ -603,13 +600,13 @@ chash_size_map_to_index_list(SizeMap)
 %% @private
 %% @doc Create a search tree from an index list.
 -spec
-     chash_index_list_to_gb_tree(index_list()) -> gb_trees:tree().
+     chash_index_list_to_index_tree(index_list()) -> index_tree().
 
-chash_index_list_to_gb_tree([]) ->
+chash_index_list_to_index_tree([]) ->
     gb_trees:balance(gb_trees:from_orddict([]));
-chash_index_list_to_gb_tree(IndexList) ->
+chash_index_list_to_index_tree(IndexList) ->
     %% Is this still needed with integer?
-    %% SHould not be necessary because first node is always at 0 and covers
+    %% Should not be necessary because first node is always at 0 and covers
     %% that case.
     % {Index, Name} = lists:last(IndexList),
     %% QuickCheck found a bug ... it really helps to add a catch-all item
@@ -623,20 +620,19 @@ chash_index_list_to_gb_tree(IndexList) ->
 %% @private
 %% @doc Query the tree with the key.
 -spec chash_gb_next(index() | index_as_int(),
-                    index_tree()) -> node_entry().
+                    index_tree(), chash_node()) -> node_entry().
 
-chash_gb_next(X, {_, GbTree} = Tree)
+chash_gb_next(X, {_, GbTree}, ZeroNode)
     when is_integer(X) ->
-    {0, ZeroNode} = gb_trees:smallest(Tree),
     chash_gb_next1(X, GbTree, true, ZeroNode);
-chash_gb_next(X, T) ->
-    chash_gb_next(hash:as_integer(X), T).
+chash_gb_next(X, T, Z) ->
+    chash_gb_next(hash:as_integer(X), T, Z).
 
 %% @private
 %% @doc Return the entry associated with the given key according to chash
 %% semantics: The responsible node for the key is the one next on the ring.
 -spec chash_gb_next1(X :: integer(), term(), boolean(),
-                     chash_node()) -> node_entry().
+                     chash_node()) -> node_entry() | nil.
 
 chash_gb_next1(X, {Key, Val, Left, _Right}, _IsRoot,
                ZeroNode)

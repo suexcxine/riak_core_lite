@@ -205,7 +205,8 @@ get_primary_apl(DocIdx, N, Ring, UpNodes) ->
 %% crashing.
 first_up(DocIdx, Service) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-    Preflist = riak_core_ring:preflist(DocIdx, Ring),
+    {_, Preflist} =
+        lists:unzip(riak_core_ring:preflist(DocIdx, Ring)),
     UpSet =
         ordsets:from_list(riak_core_node_watcher:nodes(Service)),
     lists:nth(1,

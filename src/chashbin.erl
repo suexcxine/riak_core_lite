@@ -90,15 +90,12 @@ create(CHash) ->
 %% @doc Convert a `chashbin' back to a `chash'
 -spec to_chash(chashbin()) -> chash:chash().
 
-to_chash(CHBin) ->
-    {L, W} = to_list(CHBin), {L, {stale, {}}, W}.
+to_chash(CHBin) -> L = to_list(CHBin), {L, stale}.
 
-%% @doc Convert a `chashbin' to a list of `{Owner, Index}' pairs and a list of
-%% `{Owner, Weight}' pairs.
+%% @doc Convert a `chashbin' to a list of `{Owner, Index}' pairs.
 -spec to_list(chashbin()) -> [chash:node_entry()].
 
 to_list(#chashbin{owners = OBin, nodes = Nodes}) ->
-    %% Not Sure if bit_size() is legal here since using it directly is not
     BitSize = hash:out_size(),
     [{element(Id, Nodes), Idx}
      || <<Idx:BitSize/integer, Id:16/integer>> <= OBin].
@@ -179,7 +176,7 @@ responsible_position(HashKey,
 
 index_owner(Idx, CHBin) ->
     case itr_value(exact_iterator(Idx, CHBin)) of
-      {Owner, _Index} -> Owner;
+      {Idx, Owner} -> Owner;
       _ ->
           %% Match the behavior for riak_core_ring:index_owner/2
           exit({badmatch, false})

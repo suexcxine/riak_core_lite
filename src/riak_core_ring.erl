@@ -381,8 +381,9 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    {PrefList, _CHash2} = replication:replicate(Key,
-                                                State#chstate.chring),
+    {PrefList, _CHash2} =
+        replication:replicate(hash:as_integer(Key),
+                              State#chstate.chring),
     [{hash:as_integer(I), N} || {I, N} <- PrefList].
 
 %% @doc Return a randomly-chosen node from amongst the owners.
@@ -942,7 +943,8 @@ change_owners(CState, Reassign) ->
                 CState, Reassign).
 
 %% @doc Return all indices that a node is scheduled to give to another.
--spec disowning_indices(chstate(), node()) -> integer().
+-spec disowning_indices(chstate(),
+                        node()) -> [integer()].
 
 disowning_indices(State, Node) ->
     case is_resizing(State) of
@@ -1633,7 +1635,7 @@ future_ring(State) ->
 %% @param State State to work on.
 %% @param IsResizing Flag showing if the ring is currently resizing.
 %% @returns The future ring depending on the resizing flag.
--spec future_ring(State :: chstate,
+-spec future_ring(State :: chstate(),
                   IsResizing :: boolean()) -> chstate().
 
 future_ring(State, false) ->

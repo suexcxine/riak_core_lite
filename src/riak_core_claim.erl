@@ -80,7 +80,8 @@ claim(Ring) -> claim(Ring, want, choose).
 %% @param Mode1 ignored.
 %% @param Mode2 ignored.
 %% @returns The ring after the claim algorithm has been applied.
--spec claim(Ring :: ring(), Mode1 :: any(), Mode2 :: any()) -> ring().
+-spec claim(Ring :: ring(), Mode1 :: any(),
+            Mode2 :: any()) -> ring().
 
 claim(Ring, _Mode1, _Mode2) ->
     Members = riak_core_ring:claiming_members(Ring),
@@ -93,7 +94,8 @@ claim(Ring, _Mode1, _Mode2) ->
 %% @param Ring Ring the algorithm is applied to.
 %% @param Node Node name of the node to be balanced.
 %% @returns The balanced ring.
--spec claim_until_balanced(Ring :: ring(), Node :: term()) -> ring().
+-spec claim_until_balanced(Ring :: ring(),
+                           Node :: term()) -> ring().
 
 claim_until_balanced(Ring, Node) ->
     claim_until_balanced(Ring, Node, want, choose).
@@ -104,7 +106,8 @@ claim_until_balanced(Ring, Node) ->
 %% @param want Fixed guard.
 %% @param choose Fixed guard
 %% @returns The balanced ring.
--spec claim_until_balanced(Ring :: ring(), Node :: term(), want, choose) -> ring().
+-spec claim_until_balanced(Ring :: ring(),
+                           Node :: term(), want, choose) -> ring().
 
 claim_until_balanced(Ring, Node, want, choose) ->
     NeedsIndexes = wants_claim_v2(Ring, Node),
@@ -131,7 +134,8 @@ default_choose_claim(Ring) ->
 %% @param Ring Ring to claim on.
 %% @param Node Node to claim for.
 %% @returns Updated ring.
--spec default_choose_claim(Ring :: ring(), Node :: term()) -> ring().
+-spec default_choose_claim(Ring :: ring(),
+                           Node :: term()) -> ring().
 
 default_choose_claim(Ring, Node) ->
     choose_claim_v2(Ring, Node).
@@ -141,7 +145,8 @@ default_choose_claim(Ring, Node) ->
 %% @param Node Node to claim for.
 %% @param Params Parameters to consider.
 %% @returns Updated ring.
--spec default_choose_claim(Ring :: ring(), Node :: term(), Params :: [term()]) -> ring().
+-spec default_choose_claim(Ring :: ring(),
+                           Node :: term(), Params :: [term()]) -> ring().
 
 default_choose_claim(Ring, Node, Params) ->
     choose_claim_v2(Ring, Node, Params).
@@ -149,14 +154,17 @@ default_choose_claim(Ring, Node, Params) ->
 %% @doc Want a partition if we currently have less than floor(ringsize/nodes).
 %% @param Ring Ring to claim on.
 %% @returns `{yes, Difference}' or `no'.
--spec default_wants_claim(Ring ::ring()) -> {yes, integer()} | no.
+-spec default_wants_claim(Ring :: ring()) -> {yes,
+                                              integer()} |
+                                             no.
 
 default_wants_claim(Ring) ->
     default_wants_claim(Ring, node()).
 
 %% @doc Like {@link default_wants_claim/1} with a given node.
 %% @param Node Node to decide balance for.
--spec default_wants_claim(Ring :: ring(), Node :: term()) -> {yes, integer()} | no.
+-spec default_wants_claim(Ring :: ring(),
+                          Node :: term()) -> {yes, integer()} | no.
 
 default_wants_claim(Ring, Node) ->
     wants_claim_v2(Ring, Node).
@@ -164,13 +172,17 @@ default_wants_claim(Ring, Node) ->
 %% @doc Decide if the local node needs more partitions.
 %% @param Ring Ring to claim on.
 %% @returns `{yes, Difference}' or `no'.
--spec wants_claim_v2(Ring :: ring()) -> {yes, integer()} | no.
+-spec wants_claim_v2(Ring :: ring()) -> {yes,
+                                         integer()} |
+                                        no.
 
 wants_claim_v2(Ring) -> wants_claim_v2(Ring, node()).
 
 %% @doc Like {@link wants_claim_v2/1} for another node.
 %% @param Node Node to decide balance for.
--spec wants_claim_v2(Ring :: ring(), Node :: term()) -> {yes, integer()} | no.
+-spec wants_claim_v2(Ring :: ring(),
+                     Node :: term()) -> {yes, integer()} | no.
+
 wants_claim_v2(Ring, Node) ->
     Active = riak_core_ring:claiming_members(Ring),
     Owners = riak_core_ring:all_owners(Ring),
@@ -186,12 +198,14 @@ wants_claim_v2(Ring, Node) ->
 
 %% @doc Provide default choose parameters if none given
 -spec default_choose_params() -> [term()].
+
 default_choose_params() -> default_choose_params([]).
 
 %% @doc Provide default NVal if it is not contained in the given parameters.
 %% @param Params List of claim parameters.
 %% @returns List of claim parameters containing target NVal.
--spec default_choose_params(Params :: term()) -> [term()].
+-spec default_choose_params(Params ::
+                                term()) -> [term()].
 
 default_choose_params(Params) ->
     case proplists:get_value(target_n_val, Params) of
@@ -211,7 +225,8 @@ choose_claim_v2(Ring) -> choose_claim_v2(Ring, node()).
 
 %% @doc Like {@link choose_claim_v2/1} with a specified node.
 %% @param Node Specified node that claims a partition.
--spec choose_claim_v2(Ring :: ring(), Node :: term()) -> ring().
+-spec choose_claim_v2(Ring :: ring(),
+                      Node :: term()) -> ring().
 
 choose_claim_v2(Ring, Node) ->
     Params = default_choose_params(),
@@ -219,7 +234,8 @@ choose_claim_v2(Ring, Node) ->
 
 %% @doc Like {@link choose_claim_v2/2} with specified parameters.
 %% @param Params0 Claim parameter list.
--spec choose_claim_v2(Ring :: ring(), Node :: term(), Params0 :: [term()]) -> ring().
+-spec choose_claim_v2(Ring :: ring(), Node :: term(),
+                      Params0 :: [term()]) -> ring().
 
 choose_claim_v2(Ring, Node, Params0) ->
     Params = default_choose_params(Params0),
@@ -405,7 +421,9 @@ increase_takes([NodeDelta | Rest], N, Max, Acc) ->
 %% @param Ring Ring to check.
 %% @param TargetN NVal to check.
 %% @returns Boolean indicating if the ring meets the requirement.
--spec meets_target_n(Ring :: ring(), TargetN :: pos_integer()) -> boolean().
+-spec meets_target_n(Ring :: ring(),
+                     TargetN :: pos_integer()) -> boolean().
+
 meets_target_n(Ring, TargetN) ->
     Owners = lists:keysort(1,
                            riak_core_ring:all_owners(Ring)),
@@ -413,7 +431,10 @@ meets_target_n(Ring, TargetN) ->
 
 %% @private
 %% @doc Helper function for {@link meets_target_n/2}.
--spec meets_target_n(Owners :: [{integer(), term()}], TargetN :: pos_integer(), Index :: non_neg_integer(), First :: [{integer(), term()}], Last :: [{integer(), term()}]) -> boolean().
+-spec meets_target_n(Owners :: [{integer(), term()}],
+                     TargetN :: pos_integer(), Index :: non_neg_integer(),
+                     First :: [{integer(), term()}],
+                     Last :: [{integer(), term()}]) -> boolean().
 
 meets_target_n([{Part, Node} | Rest], TargetN, Index,
                First, Last) ->
@@ -454,7 +475,10 @@ meets_target_n([], TargetN, Index, First, Last) ->
 %% @param Owners List of indices and the name of their owning node.
 %% @param Params Parameters.
 %% @returns New owner list and a list of attributes, in this case `diversified'.
--spec claim_diversify(Wants :: [{term(), integer()}], Owners :: [{integer(), term()}], Params :: [term()]) -> {[{integer(), term()}] ,[atom()]}.
+-spec claim_diversify(Wants :: [{term(), integer()}],
+                      Owners :: [{integer(), term()}],
+                      Params :: [term()]) -> {[{integer(), term()}],
+                                              [atom()]}.
 
 claim_diversify(Wants, Owners, Params) ->
     TN = proplists:get_value(target_n_val, Params,
@@ -474,7 +498,10 @@ claim_diversify(Wants, Owners, Params) ->
 %% @param Params Parameters.
 %% @returns Diagonalized list of owners and a list of attributes, in this case
 %%          `diagonalized'.
--spec claim_diagonal(Wants :: [{term(), integer()}], Owners :: [{integer(), term()}], Params :: [term()]) -> {[term()] ,[atom()]}.
+-spec claim_diagonal(Wants :: [{term(), integer()}],
+                     Owners :: [{integer(), term()}],
+                     Params :: [term()]) -> {[term()], [atom()]}.
+
 claim_diagonal(Wants, Owners, Params) ->
     TN = proplists:get_value(target_n_val, Params,
                              ?DEF_TARGET_N),
@@ -606,7 +633,9 @@ backfill_ring(RingSize, Nodes, Remaining, Acc) ->
 %% @param Node :: Node to rebalance from.
 %% @returns Rebalanced ring.
 %% @see diagonal_stripe/2.
--spec claim_rebalance_n(Ring :: ring(), Node :: term()) -> ring().
+-spec claim_rebalance_n(Ring :: ring(),
+                        Node :: term()) -> ring().
+
 claim_rebalance_n(Ring, Node) ->
     Nodes = lists:usort([Node
                          | riak_core_ring:claiming_members(Ring)]),
@@ -621,7 +650,8 @@ claim_rebalance_n(Ring, Node) ->
 %% @param Ring Ring on which the stripes are built.
 %% @param Nodes Nodes that are to be distributed.
 %% @returns List of indices and assigned nodes.
--spec diagonal_stripe(Ring :: ring(), Nodes :: [term()]) -> [{integer(), term()}].
+-spec diagonal_stripe(Ring :: ring(),
+                      Nodes :: [term()]) -> [{integer(), term()}].
 
 diagonal_stripe(Ring, Nodes) ->
     %% diagonal stripes guarantee most disperse data
@@ -646,14 +676,16 @@ random_choose_claim(Ring) ->
 
 %% @doc Like {@link random_choose_claim/1} with a specified node.
 %% @param Node Node to choose a partition for.
--spec random_choose_claim(Ring ::  ring(), Node :: term()) -> ring().
+-spec random_choose_claim(Ring :: ring(),
+                          Node :: term()) -> ring().
 
 random_choose_claim(Ring, Node) ->
     random_choose_claim(Ring, Node, []).
 
 %% @doc Like {@link random_choose_claim/2} with specified parameters.
 %% @param Params List of parameters, currently ignored.
--spec random_choose_claim(Ring :: ring(), Node :: term(), Params :: [term()]) -> ring().
+-spec random_choose_claim(Ring :: ring(),
+                          Node :: term(), Params :: [term()]) -> ring().
 
 random_choose_claim(Ring, Node, _Params) ->
     riak_core_ring:transfer_node(riak_core_ring:random_other_index(Ring),
@@ -714,7 +746,11 @@ get_counts(Nodes, Ring) ->
 
 %% @private
 %% @doc Add default delta values for all owners to the delta list.
--spec add_default_deltas(IdxOwners :: [{integer(), term()}], Deltas :: [{term(), integer()}], Default :: integer()) -> [{term(), integer()}].
+-spec add_default_deltas(IdxOwners :: [{integer(),
+                                        term()}],
+                         Deltas :: [{term(), integer()}],
+                         Default :: integer()) -> [{term(), integer()}].
+
 add_default_deltas(IdxOwners, Deltas, Default) ->
     {_, Owners} = lists:unzip(IdxOwners),
     Owners2 = lists:usort(Owners),
@@ -724,7 +760,12 @@ add_default_deltas(IdxOwners, Deltas, Default) ->
 %% @private
 %% @doc Filter out candidate indices that would violate target_n given a node's
 %%      current partition ownership.
--spec prefilter_violations(Ring :: ring(), Node :: term(), AllIndices :: [{term(), integer()}], Indices :: [{term(), integer()}], TargetN :: pos_integer(), RingSize :: non_neg_integer()) -> [{term(), integer()}].
+-spec prefilter_violations(Ring :: ring(),
+                           Node :: term(), AllIndices :: [{term(), integer()}],
+                           Indices :: [{term(), integer()}],
+                           TargetN :: pos_integer(),
+                           RingSize :: non_neg_integer()) -> [{term(),
+                                                               integer()}].
 
 prefilter_violations(Ring, Node, AllIndices, Indices,
                      TargetN, RingSize) ->
@@ -749,7 +790,12 @@ prefilter_violations(Ring, Node, AllIndices, Indices,
 %%    expected ownership. In other words, if A owns 5 partitions and
 %%    the desired ownership is 3, then we try to claim at most 2 partitions
 %%    from A.
--spec select_indices(Owners :: [], Deltas :: [{term(), integer()}], Indices :: [{term(), integer()}], TargetN :: pos_integer(), RingSize :: pos_integer()) -> [integer()].
+-spec select_indices(Owners :: [],
+                     Deltas :: [{term(), integer()}],
+                     Indices :: [{term(), integer()}],
+                     TargetN :: pos_integer(),
+                     RingSize :: pos_integer()) -> [integer()].
+
 select_indices(_Owners, _Deltas, [], _TargetN,
                _RingSize) ->
     [];
@@ -790,7 +836,9 @@ select_indices(Owners, Deltas, Indices, TargetN,
 
 %% @private
 %% @doc Determine if two positions in the ring meet target_n spacing.
--spec spaced_by_n(Ntha :: integer(), NthB :: integer(), TargetN :: pos_integer(), RingSize :: pos_integer()) -> boolean().
+-spec spaced_by_n(Ntha :: integer(), NthB :: integer(),
+                  TargetN :: pos_integer(),
+                  RingSize :: pos_integer()) -> boolean().
 
 spaced_by_n(NthA, NthB, TargetN, RingSize) ->
     case NthA > NthB of
@@ -805,7 +853,8 @@ spaced_by_n(NthA, NthB, TargetN, RingSize) ->
 %%      (positive) or is overloaded by (negative) compared to what it owns.
 %% @param Wants List of node names and their target number of partitions.
 %% @param Owns List of node names and their actual number of partitions.
--spec wants_owns_diff(Wants :: [{term(), integer()}], Owns :: [{term(), integer()}]) -> integer().
+-spec wants_owns_diff(Wants :: [{term(), integer()}],
+                      Owns :: [{term(), integer()}]) -> [{term(), integer()}].
 
 wants_owns_diff(Wants, Owns) ->
     [case lists:keyfind(N, 1, Owns) of
@@ -833,7 +882,8 @@ wants(Ring) ->
 %% @private
 %% @doc Given a number of nodes and ring size, return a list of
 %% desired ownership, S long that add up to Q
--spec wants_counts(S :: non_neg_integer(), Q :: non_neg_integer()) -> [integer()].
+-spec wants_counts(S :: non_neg_integer(),
+                   Q :: non_neg_integer()) -> [integer()].
 
 wants_counts(S, Q) ->
     Max = roundup(Q / S),

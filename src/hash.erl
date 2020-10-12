@@ -22,21 +22,22 @@ hash(Key) -> hash(?HASH, Key).
 
 %% @doc Convert a value from its unit interval or binary representation to an
 %% integer representation.
--spec as_integer(Value :: binary() |
-                          unit()) -> integer().
+-spec as_integer(Value :: binary() | unit() |
+                          integer()) -> integer().
 
 as_integer(Value) -> as_integer(?HASH, Value).
 
 %% @doc Convert a value from its unit interval or integer representation to a
 %% binary representation.
--spec as_binary(Value :: integer() |
-                         unit()) -> binary().
+-spec as_binary(Value :: integer() | unit() |
+                         binary()) -> binary().
 
 as_binary(Value) -> as_binary(?HASH, Value).
 
 %% @doc Convert a value from its integer or binary representation to a
 %% unit interval representation.
--spec as_unit(Value :: integer() | binary()) -> unit().
+-spec as_unit(Value :: integer() | binary() |
+                       unit()) -> unit().
 
 as_unit(Value) -> as_unit(?HASH, Value).
 
@@ -66,8 +67,9 @@ hash(md5, Key) -> crypto:hash(md5, Key).
 
 %% @doc See {@link as_integer/1}
 -spec as_integer(Type :: algorithm(),
-                 Value :: binary() | unit()) -> integer().
+                 Value :: binary() | unit() | integer()) -> integer().
 
+as_integer(_, Value) when is_integer(Value) -> Value;
 as_integer(Type, Value) when is_binary(Value) ->
     BitSize = out_size(Type),
     <<Int:BitSize/integer>> = Value,
@@ -78,8 +80,9 @@ as_integer(Type, Value) ->
 
 %% @doc See {@link as_binary/1}
 -spec as_binary(Type :: algorithm(),
-                Value :: integer() | unit()) -> binary().
+                Value :: integer() | unit() | binary()) -> binary().
 
+as_binary(_, Value) when is_binary(Value) -> Value;
 as_binary(Type, Value) when is_integer(Value) ->
     BitSize = out_size(Type), <<Value:BitSize/integer>>;
 as_binary(Type, Value) ->
@@ -87,8 +90,9 @@ as_binary(Type, Value) ->
 
 %% @doc See {@link as_unit/1}
 -spec as_unit(Type :: algorithm(),
-              Value :: integer() | binary()) -> unit().
+              Value :: integer() | binary() | unit()) -> unit().
 
+as_unit(_, Value) when is_float(Value) -> Value;
 as_unit(Type, Value) when is_integer(Value) ->
     Value / max_integer(Type);
 as_unit(Type, Value) ->
