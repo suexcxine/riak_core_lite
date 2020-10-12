@@ -122,7 +122,7 @@ start_link() ->
 %% @returns `{ok, Changes, NextRings}' if the plan can be generated,
 %%          `{error, Reason}' otherwise.
 -spec plan() -> {error,
-                 ring_not_ready | incalid_resize_claim} |
+                 ring_not_ready | invalid_resize_claim} |
                 {ok, [change()], [riak_core_ring()]}.
 
 plan() -> gen_server:call(claimant(), plan, infinity).
