@@ -61,6 +61,8 @@
 
 -behaviour(gen_server).
 
+-type ring() :: riak_core_ring:riak_core_ring().
+
 -export([start_link/0, start_link/1, get_my_ring/0,
          get_raw_ring/0, get_raw_ring_chashbin/0,
          get_chash_bin/0, get_ring_id/0, refresh_my_ring/0,
@@ -128,6 +130,8 @@ get_my_ring() ->
       undefined -> {error, no_ring}
     end.
 
+%% @doc Retrieve the ring currently stored on this local node.
+-spec get_raw_ring() -> ring().
 get_raw_ring() ->
     try Ring = ets:lookup_element(?ETS, raw_ring, 2),
         {ok, Ring}
