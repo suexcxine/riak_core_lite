@@ -562,11 +562,9 @@ schedule_management_timer() ->
     erlang:send_after(ManagementTick, ?MODULE,
                       management_tick).
 
-trigger_ownership_handoff(Transfers, Mods, Ring,
+trigger_ownership_handoff(Transfers, Mods, _Ring,
                           State) ->
-    IsResizing = riak_core_ring:is_resizing(Ring),
-    Throttle = limit_ownership_handoff(Transfers,
-                                       IsResizing),
+    Throttle = limit_ownership_handoff(Transfers),
     Awaiting = [{Mod, Idx}
                 || {Idx, Node, _, CMods, S} <- Throttle, Mod <- Mods,
                    S =:= awaiting, Node =:= node(),
@@ -575,22 +573,14 @@ trigger_ownership_handoff(Transfers, Mods, Ring,
          || {Mod, Idx} <- Awaiting],
     ok.
 
-limit_ownership_handoff(Transfers, IsResizing) ->
+limit_ownership_handoff(Transfers) ->
     Limit = application:get_env(riak_core,
                                 forced_ownership_handoff,
                                 ?DEFAULT_OWNERSHIP_TRIGGER),
-    limit_ownership_handoff(Limit, Transfers, IsResizing).
+    limit_ownership_handoff(Limit, Transfers).
 
-limit_ownership_handoff(Limit, Transfers, false) ->
-    lists:sublist(Transfers, Limit);
-limit_ownership_handoff(Limit, Transfers, true) ->
-    %% if we are resizing: filter out completed resize operations,
-    %% since they remain in the list until all are complete. then
-    %% treat transfers as normal
-    Filtered = [Transfer
-                || {_, _, _, _, Status} = Transfer <- Transfers,
-                   Status =:= awaiting],
-    limit_ownership_handoff(Limit, Filtered, false).
+limit_ownership_handoff(Limit, Transfers) ->
+    lists:sublist(Transfers, Limit).
 
 %% @private
 idx2vnode(Idx, Mod, _State = #state{idxtab = T}) ->
@@ -668,25 +658,15 @@ get_forward(Mod, Idx, #state{forwarding = Fwd}) ->
 check_forward(Ring, Mod, Index) ->
     Node = node(),
     case riak_core_ring:next_owner(Ring, Index, Mod) of
-      {Node, '$resize', _} ->
-          Complete =
-              riak_core_ring:complete_resize_transfers(Ring,
-                                                       {Index, Node}, Mod),
-          {{Mod, Index}, Complete};
       {Node, '$delete', _} -> {{Mod, Index}, undefined};
       {Node, NextOwner, complete} ->
           {{Mod, Index}, NextOwner};
       _ -> {{Mod, Index}, undefined}
     end.
 
-check_forward_precomputed(Completed, Mod, Index, Node,
-                          Ring) ->
+check_forward_precomputed(Completed, Mod, Index, _Node,
+                          _Ring) ->
     case dict:find({Mod, Index}, Completed) of
-      {ok, '$resize'} ->
-          Complete =
-              riak_core_ring:complete_resize_transfers(Ring,
-                                                       {Index, Node}, Mod),
-          {{Mod, Index}, Complete};
       {ok, '$delete'} -> {{Mod, Index}, undefined};
       {ok, NextOwner} -> {{Mod, Index}, NextOwner};
       _ -> {{Mod, Index}, undefined}
@@ -750,9 +730,6 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
                                    {true, {fallback, _Node}, TargetNode} ->
                                        [{{Mod, Idx},
                                          {hinted, outbound, TargetNode}}];
-                                   {true, '$resize' = Action} ->
-                                       [{{Mod, Idx},
-                                         {resize, outbound, Action}}];
                                    {true, '$delete' = Action} ->
                                        [{{Mod, Idx}, {delete, local, Action}}]
                                  end
@@ -765,14 +742,9 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
                                                   Idx),
     Type = riak_core_ring:vnode_type(Ring, Idx),
     Ready = riak_core_ring:ring_ready(Ring),
-    IsResizing = riak_core_ring:is_resizing(Ring),
-    case determine_handoff_target(Type, NextOwner, Ready,
-                                  IsResizing)
-        of
+    case determine_handoff_target(Type, NextOwner, Ready) of
       undefined -> false;
-      Action
-          when Action =:= '$resize' orelse Action =:= '$delete' ->
-          {true, Action};
+      Action when Action =:= '$delete' -> {true, Action};
       TargetNode ->
           case app_for_vnode_module(Mod) of
             undefined -> false;
@@ -786,48 +758,31 @@ should_handoff(Ring, _CHBin, Mod, Idx) ->
           end
     end.
 
-determine_handoff_target(Type, NextOwner, RingReady,
-                         IsResize) ->
+determine_handoff_target(Type, NextOwner, RingReady) ->
     Me = node(),
     determine_handoff_target(Type, NextOwner, RingReady,
-                             IsResize, NextOwner =:= Me).
+                             NextOwner =:= Me).
 
-determine_handoff_target(primary, _, _, _, true) ->
+determine_handoff_target(primary, _, _, true) ->
     %% Never hand off to myself as a primary
     undefined;
-determine_handoff_target(primary, undefined, _, _, _) ->
+determine_handoff_target(primary, undefined, _, _) ->
     %% No ring change indicated for this partition
     undefined;
-determine_handoff_target(primary, NextOwner, true, _,
-                         _) ->
-    %% Primary, ring is ready, go. This may be a node or a `$resize'
-    %% action
+determine_handoff_target(primary, NextOwner, true, _) ->
+    %% Primary, ring is ready, go. This may be a node.
     NextOwner;
-determine_handoff_target(primary, _, false, _, _) ->
+determine_handoff_target(primary, _, false, _) ->
     %% Ring isn't ready, no matter what, don't do a primary handoff
     undefined;
 determine_handoff_target({fallback, _Target},
-                         '$delete' = Action, _, _, _) ->
-    %% partitions moved during resize and scheduled for deletion, indexes
-    %% that exist in both the original and resized ring that were moved appear
-    %% as fallbacks.
+                         '$delete' = Action, _, _) ->
     Action;
-determine_handoff_target(resized_primary,
-                         '$delete' = Action, _, _, _) ->
-    %% partitions that no longer exist after the ring has been resized (shrunk)
-    %% scheduled for deletion
-    Action;
-determine_handoff_target(resized_primary, _, _, false,
-                         _) ->
-    %% partitions that would have existed in a ring whose expansion was aborted
-    %% and are still running need to be cleaned up after and shutdown
-    '$delete';
 determine_handoff_target({fallback, For}, undefined, _,
-                         _, _) ->
-    %% Fallback vnode target is primary (hinted handoff).  `For' can
-    %% technically be a `$resize' action but unclear it ever would be
+                         _) ->
+    %% Fallback vnode target is primary (hinted handoff).
     For;
-determine_handoff_target(_, _, _, _, _) -> undefined.
+determine_handoff_target(_, _, _, _) -> undefined.
 
 app_for_vnode_module(Mod) when is_atom(Mod) ->
     case application:get_env(riak_core, vnode_modules) of
@@ -846,16 +801,6 @@ maybe_trigger_handoff(Mod, Idx, State) ->
 maybe_trigger_handoff(Mod, Idx, Pid,
                       _State = #state{handoff = HO}) ->
     case dict:find({Mod, Idx}, HO) of
-      {ok, {resize, _Direction, '$resize'}} ->
-          {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-          case riak_core_ring:awaiting_resize_transfer(Ring,
-                                                       {Idx, node()}, Mod)
-              of
-            undefined -> ok;
-            {TargetIdx, TargetNode} ->
-                riak_core_vnode:trigger_handoff(Pid, TargetIdx,
-                                                TargetNode)
-          end;
       {ok, {delete, local, '$delete'}} ->
           riak_core_vnode:trigger_delete(Pid);
       {ok, {_Type, _Direction, TargetNode}} ->

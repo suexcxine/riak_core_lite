@@ -928,7 +928,7 @@ wants_claim_test() ->
 -spec gen_diag(pos_integer(), pos_integer()) -> [Node ::
                                                      atom()].
 
-gen_diag(RingSize, NodeCount) ->
+gen_diag(_RingSize, NodeCount) ->
     Nodes = [list_to_atom(lists:concat(["n_", N]))
              || N <- lists:seq(1, NodeCount)],
     {HeadNode, RestNodes} = {hd(Nodes), tl(Nodes)},

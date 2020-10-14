@@ -37,8 +37,7 @@
 
 -export([cast_finish_handoff/1, send_req/2,
          send_all_proxy_req/2, cancel_handoff/1,
-         handoff_complete/1, resize_transfer_complete/2,
-         handoff_data/3, unregistered/1]).
+         handoff_complete/1, handoff_data/3, unregistered/1]).
 
 -ifdef(TEST).
 
@@ -386,11 +385,6 @@ send_all_proxy_req(VNode, Req) ->
 handoff_complete(VNode) ->
     gen_fsm_compat:send_event(VNode, handoff_complete).
 
-%% # - riak:core_handoff_sender - start_fold_
-resize_transfer_complete(VNode, NotSentAcc) ->
-    gen_fsm_compat:send_event(VNode,
-                              {resize_transfer_complete, NotSentAcc}).
-
 %% # - riak_core_handoff_receiver - process_message
 handoff_data(VNode, MsgData, VNodeTimeout) ->
     gen_fsm_compat:sync_send_all_state_event(VNode,
@@ -431,39 +425,16 @@ continue(State, NewModState) ->
 %% new owner, or simply because the ring has yet to converge on the new owner.
 %% In the forwarding state, all vnode commands and coverage commands are
 %% forwarded to the new owner for processing.
-%%
-%% The above becomes a bit more complicated when the vnode takes part in resizing
-%% the ring, since several transfers with a single vnode as the source are necessary
-%% to complete the operation. A vnode will remain in the handoff state, for, potentially,
-%% more than one transfer and may be in the handoff state despite there being no active
-%% transfers with this vnode as the source. During this time requests that can be forwarded
-%% to a partition for which the transfer has already completed, are forwarded. All other
-%% requests are passed to handle_handoff_command.
 forward_or_vnode_command(Sender, Request,
-                         State = #state{forward = Forward, mod = Module,
-                                        index = Index}) ->
-    Resizing = is_list(Forward),
-    RequestHash = case Resizing of
-                    true -> Module:request_hash(Request);
-                    false -> undefined
-                  end,
-    case {Forward, RequestHash} of
+                         State = #state{forward = Forward, index = Index}) ->
+    case Forward of
       %% typical vnode operation, no forwarding set, handle request locally
-      {undefined, _} -> vnode_command(Sender, Request, State);
+      undefined -> vnode_command(Sender, Request, State);
       %% implicit forwarding after ownership transfer/hinted handoff
-      {F, _} when not is_list(F) ->
+      F when not is_list(F) ->
           vnode_forward(implicit, {Index, Forward}, Sender,
                         Request, State),
-          continue(State);
-      %% during resize we can't forward a request w/o request hash, always handle locally
-      {_, undefined} -> vnode_command(Sender, Request, State);
-      %% possible forwarding during ring resizing
-      {_, _} ->
-          {ok, R} = riak_core_ring_manager:get_my_ring(),
-          FutureIndex = riak_core_ring:future_index(RequestHash,
-                                                    Index, R),
-          vnode_resize_command(Sender, Request, FutureIndex,
-                               State)
+          continue(State)
     end.
 
 vnode_command(_Sender, _Request,
@@ -503,7 +474,6 @@ vnode_coverage(Sender, Request, KeySpaces,
       undefined ->
           Action = Module:handle_coverage(Request, KeySpaces,
                                           Sender, ModState);
-      %% handle coverage requests locally during ring resize
       Forwards when is_list(Forwards) ->
           Action = Module:handle_coverage(Request, KeySpaces,
                                           Sender, ModState);
@@ -561,17 +531,6 @@ vnode_handoff_command(Sender, Request, ForwardTo,
 
 %% @private wrap the request for resize forwards, and use the resize
 %% target.
-forward_request(resize, Request, _HOTarget,
-                ResizeTarget, Sender, State) ->
-    %% resize op and transfer ongoing
-    vnode_forward(resize, ResizeTarget, Sender,
-                  {resize_forward, Request}, State);
-forward_request(undefined, Request, _HOTarget,
-                ResizeTarget, Sender, State) ->
-    %% resize op ongoing, no resize transfer ongoing, arrive here
-    %% via forward_or_vnode_command
-    vnode_forward(resize, ResizeTarget, Sender,
-                  {resize_forward, Request}, State);
 forward_request(_, Request, HOTarget, _ResizeTarget,
                 Sender, State) ->
     %% normal explicit forwarding during owhership transfer
@@ -586,19 +545,6 @@ vnode_forward(Type, ForwardTo, Sender, Request,
                                               Request, Sender,
                                               riak_core_vnode_master:reg_name(State#state.mod)).
 
-%% @doc during ring resizing if we have completed a transfer to the index that will
-%% handle request in future ring we forward to it. Otherwise we delegate
-%% to the local vnode like other requests during handoff
-vnode_resize_command(Sender, Request, FutureIndex,
-                     State = #state{forward = Forward})
-    when is_list(Forward) ->
-    case lists:keyfind(FutureIndex, 1, Forward) of
-      false -> vnode_command(Sender, Request, State);
-      {FutureIndex, FutureOwner} ->
-          vnode_handoff_command(Sender, Request,
-                                {FutureIndex, FutureOwner}, State)
-    end.
-
 active(timeout,
        State = #state{mod = Module, index = Idx}) ->
     riak_core_vnode_manager:vnode_event(Module, Idx, self(),
@@ -610,40 +556,10 @@ active(#riak_coverage_req_v1{keyspaces = KeySpaces,
     %% Coverage request handled in handoff and non-handoff.  Will be forwarded if set.
     vnode_coverage(Sender, Request, KeySpaces, State);
 active(#riak_vnode_req_v1{sender = Sender,
-                          request = {resize_forward, Request}},
-       State) ->
-    vnode_command(Sender, Request, State);
-active(#riak_vnode_req_v1{sender = Sender,
                           request = Request},
        State = #state{handoff_target = HT})
     when HT =:= none ->
     forward_or_vnode_command(Sender, Request, State);
-active(#riak_vnode_req_v1{sender = Sender,
-                          request = Request},
-       State = #state{handoff_type = resize,
-                      handoff_target = {HOIdx, HONode}, index = Index,
-                      forward = Forward, mod = Module}) ->
-    RequestHash = Module:request_hash(Request),
-    case RequestHash of
-      %% will never have enough information to forward request so only handle locally
-      undefined -> vnode_command(Sender, Request, State);
-      _ ->
-          {ok, R} = riak_core_ring_manager:get_my_ring(),
-          FutureIndex = riak_core_ring:future_index(RequestHash,
-                                                    Index, R),
-          case FutureIndex of
-            %% request for portion of keyspace currently being transferred
-            HOIdx ->
-                vnode_handoff_command(Sender, Request, {HOIdx, HONode},
-                                      State);
-            %% some portions of keyspace already transferred
-            _Other when is_list(Forward) ->
-                vnode_resize_command(Sender, Request, FutureIndex,
-                                     State);
-            %% some portions of keyspace not already transferred
-            _Other -> vnode_command(Sender, Request, State)
-          end
-    end;
 active(#riak_vnode_req_v1{sender = Sender,
                           request = Request},
        State) ->
@@ -653,18 +569,6 @@ active(handoff_complete, State) ->
     State2 = start_manager_event_timer(handoff_complete,
                                        State),
     continue(State2);
-active({resize_transfer_complete, SeenIdxs},
-       State = #state{mod = Module, modstate = ModState,
-                      handoff_target = Target}) ->
-    case Target of
-      none -> continue(State);
-      _ ->
-          %% TODO: refactor similarties w/ finish_handoff handle_event
-          {ok, NewModState} = Module:handoff_finished(Target,
-                                                      ModState),
-          finish_handoff(SeenIdxs,
-                         State#state{modstate = NewModState})
-    end;
 active({handoff_error, _Err, _Reason}, State) ->
     State2 = start_manager_event_timer(handoff_error,
                                        State),
@@ -713,41 +617,6 @@ active(_Event, _From, State) ->
 %% manager. Blocking the manager can impact all vnodes. This code is safe
 %% to execute on multiple parallel vnodes because of the synchronization
 %% afforded by having all ring changes go through the single ring manager.
-mark_handoff_complete(SrcIdx, Target, SeenIdxs, Mod,
-                      resize) ->
-    Prev = node(),
-    Source = {SrcIdx, Prev},
-    TransFun = fun (Ring, _) ->
-                       Owner = riak_core_ring:index_owner(Ring, SrcIdx),
-                       Status = riak_core_ring:resize_transfer_status(Ring,
-                                                                      Source,
-                                                                      Target,
-                                                                      Mod),
-                       case {Owner, Status} of
-                         {Prev, awaiting} ->
-                             F = fun (SeenIdx, RingAcc) ->
-                                         riak_core_ring:schedule_resize_transfer(RingAcc,
-                                                                                 Source,
-                                                                                 SeenIdx)
-                                 end,
-                             Ring2 = lists:foldl(F, Ring,
-                                                 ordsets:to_list(SeenIdxs)),
-                             Ring3 =
-                                 riak_core_ring:resize_transfer_complete(Ring2,
-                                                                         Source,
-                                                                         Target,
-                                                                         Mod),
-                             %% local ring optimization (see below)
-                             {set_only, Ring3};
-                         _ -> ignore
-                       end
-               end,
-    Result = riak_core_ring_manager:ring_trans(TransFun,
-                                               []),
-    case Result of
-      {ok, _NewRing} -> resize;
-      _ -> continue
-    end;
 mark_handoff_complete(Idx, {Idx, New}, [], Mod, _) ->
     Prev = node(),
     Result = riak_core_ring_manager:ring_trans(fun (Ring,
@@ -814,13 +683,6 @@ finish_handoff(SeenIdxs,
       continue ->
           continue(State#state{handoff_target = none,
                                handoff_type = undefined});
-      resize ->
-          CurrentForwarding = resize_forwarding(State),
-          NewForwarding = [Target | CurrentForwarding],
-          State2 = mod_set_forwarding(NewForwarding, State),
-          continue(State2#state{handoff_target = none,
-                                handoff_type = undefined,
-                                forward = NewForwarding});
       Res when Res == forward; Res == shutdown ->
           {_, HN} = Target,
           %% Have to issue the delete now.  Once unregistered the
@@ -851,11 +713,6 @@ maybe_shutdown_pool(#state{pool_pid = Pool}) ->
       _ -> ok
     end.
 
-resize_forwarding(#state{forward = F})
-    when is_list(F) ->
-    F;
-resize_forwarding(_) -> [].
-
 mark_delete_complete(Idx, Mod) ->
     Result = riak_core_ring_manager:ring_trans(fun (Ring,
                                                     _) ->
@@ -867,15 +724,6 @@ mark_delete_complete(Idx, Mod) ->
                                                                                      Idx),
                                                        case {Type, Next, Status}
                                                            of
-                                                         {resized_primary,
-                                                          '$delete',
-                                                          awaiting} ->
-                                                             Ring3 =
-                                                                 riak_core_ring:deletion_complete(Ring,
-                                                                                                  Idx,
-                                                                                                  Mod),
-                                                             %% Use local ring optimization like mark_handoff_complete
-                                                             {set_only, Ring3};
                                                          {{fallback, _},
                                                           '$delete',
                                                           awaiting} ->
@@ -1135,12 +983,10 @@ maybe_handoff(TargetIdx, TargetNode,
     case ValidHN of
       true ->
           {ok, R} = riak_core_ring_manager:get_my_ring(),
-          Resizing = riak_core_ring:is_resizing(R),
           Primary = riak_core_ring:is_primary(R, {Idx, node()}),
-          HOType = case {Resizing, Primary} of
-                     {true, _} -> resize;
-                     {_, true} -> ownership;
-                     {_, false} -> hinted
+          HOType = case Primary of
+                     true -> ownership;
+                     false -> hinted
                    end,
           case Module:handoff_starting({HOType, Target}, ModState)
               of

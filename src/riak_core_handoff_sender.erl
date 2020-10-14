@@ -209,7 +209,7 @@ start_fold_(TargetNode, Module, Type, Opts, ParentPid,
     #ho_acc{error = ErrStatus, module = Module,
             parent = ParentPid, total_objects = TotalObjects,
             total_bytes = TotalBytes, stats = FinalStats,
-            acksync_timer = TRef, notsent_acc = NotSentAcc} =
+            acksync_timer = TRef} =
         AccRecord,
     _ = timer:cancel(TRef),
     case ErrStatus of
@@ -240,9 +240,6 @@ start_fold_(TargetNode, Module, Type, Opts, ParentPid,
                            ThroughputBytes]),
           case Type of
             repair -> ok;
-            resize ->
-                riak_core_vnode:resize_transfer_complete(ParentPid,
-                                                         NotSentAcc);
             _ -> riak_core_vnode:handoff_complete(ParentPid)
           end;
       {error, ErrReason} ->

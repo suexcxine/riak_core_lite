@@ -26,8 +26,7 @@
 -export([start_link/0]).
 
 -export([leave_member/1, remove_member/1,
-         force_replace/2, replace/2, resize_ring/1,
-         abort_resize/0, plan/0, commit/0, clear/0,
+         force_replace/2, replace/2, plan/0, commit/0, clear/0,
          ring_changed/2]).
 
 -export([reassign_indices/1]). % helpers for claim sim
@@ -119,23 +118,6 @@ replace(Node, NewNode) ->
 %%      and does not yet own any partitions of its own.
 force_replace(Node, NewNode) ->
     stage(Node, {force_replace, NewNode}).
-
-%% @doc Stage a request to resize the ring. If committed, all nodes
-%%      will participate in resizing operation. Unlike other operations,
-%%      the new ring is not installed until all transfers have completed.
-%%      During that time requests continue to be routed to the old ring.
-%%      After completion, the new ring is installed and data is safely
-%%      removed from partitons no longer owner by a node or present
-%%      in the ring.
--spec resize_ring(integer()) -> ok | {error, atom()}.
-
-resize_ring(NewRingSize) ->
-    %% use the node making the request. it will be ignored
-    stage(node(), {resize, NewRingSize}).
-
--spec abort_resize() -> ok | {error, atom()}.
-
-abort_resize() -> stage(node(), abort_resize).
 
 %% @doc Clear the current set of staged transfers
 clear() -> gen_server:call(claimant(), clear, infinity).
@@ -250,15 +232,12 @@ generate_plan([], _, State) ->
     {{ok, [], []}, State};
 generate_plan(Changes, Ring,
               State = #state{seed = Seed}) ->
-    case compute_all_next_rings(Changes, Seed, Ring) of
-      {error, invalid_resize_claim} ->
-          {{error, invalid_resize_claim}, State};
-      {ok, NextRings} ->
-          {_, NextRing} = hd(NextRings),
-          State2 = State#state{next_ring = NextRing},
-          Reply = {ok, Changes, NextRings},
-          {Reply, State2}
-    end.
+    {ok, NextRings} = compute_all_next_rings(Changes, Seed,
+                                             Ring),
+    {_, NextRing} = hd(NextRings),
+    State2 = State#state{next_ring = NextRing},
+    Reply = {ok, Changes, NextRings},
+    {Reply, State2}.
 
 %% @private
 %% @doc Commit the set of staged cluster changes. See {@link commit/0}
@@ -284,12 +263,9 @@ maybe_commit_staged(State) ->
 maybe_commit_staged(Ring,
                     State = #state{changes = Changes, seed = Seed}) ->
     Changes2 = filter_changes(Changes, Ring),
-    case compute_next_ring(Changes2, Seed, Ring) of
-      {error, invalid_resize_claim} ->
-          {ignore, invalid_resize_claim};
-      {ok, NextRing} ->
-          maybe_commit_staged(Ring, NextRing, State)
-    end.
+    {ok, NextRing} = compute_next_ring(Changes2, Seed,
+                                       Ring),
+    maybe_commit_staged(Ring, NextRing, State).
 
 %% @private
 maybe_commit_staged(Ring, NextRing,
@@ -359,10 +335,7 @@ valid_request(Node, Action, Changes, Ring) ->
           valid_replace_request(Node, NewNode, Changes, Ring);
       {force_replace, NewNode} ->
           valid_force_replace_request(Node, NewNode, Changes,
-                                      Ring);
-      {resize, NewRingSize} ->
-          valid_resize_request(NewRingSize, Changes, Ring);
-      abort_resize -> valid_resize_abort_request(Ring)
+                                      Ring)
     end.
 
 %% @private
@@ -426,29 +399,6 @@ valid_force_replace_request(Node, NewNode, Changes,
       {_, _, true, _} -> {error, already_replacement};
       {_, _, _, false} -> {error, invalid_replacement};
       _ -> true
-    end.
-
-%% @private
-%% restrictions preventing resize along with other operations are temporary
-valid_resize_request(NewRingSize, [], Ring) ->
-    IsResizing = riak_core_ring:num_partitions(Ring) =/=
-                   NewRingSize,
-    NodeCount = length(riak_core_ring:all_members(Ring)),
-    Changes = length(riak_core_ring:pending_changes(Ring)) >
-                0,
-    case {IsResizing, NodeCount, Changes} of
-      {true, N, false} when N > 1 -> true;
-      {false, _, _} -> {error, same_size};
-      {_, 1, _} -> {error, single_node};
-      {_, _, true} -> {error, pending_changes}
-    end.
-
-valid_resize_abort_request(Ring) ->
-    IsResizing = riak_core_ring:is_resizing(Ring),
-    IsPostResize = riak_core_ring:is_post_resize(Ring),
-    case IsResizing andalso not IsPostResize of
-      true -> true;
-      false -> {error, not_resizing}
     end.
 
 %% @private
@@ -522,15 +472,13 @@ maybe_force_ring_update(Ring) ->
     end.
 
 do_maybe_force_ring_update(Ring) ->
-    case compute_next_ring([], erlang:timestamp(), Ring) of
-      {ok, NextRing} ->
-          case same_plan(Ring, NextRing) of
-            false ->
-                logger:warning("Forcing update of stalled ring"),
-                riak_core_ring_manager:force_update();
-            true -> ok
-          end;
-      _ -> ok
+    {ok, NextRing} = compute_next_ring([],
+                                       erlang:timestamp(), Ring),
+    case same_plan(Ring, NextRing) of
+      false ->
+          logger:warning("Forcing update of stalled ring"),
+          riak_core_ring_manager:force_update();
+      true -> ok
     end.
 
 %% =========================================================================
@@ -543,16 +491,13 @@ compute_all_next_rings(Changes, Seed, Ring) ->
 
 %% @private
 compute_all_next_rings(Changes, Seed, Ring, Acc) ->
-    case compute_next_ring(Changes, Seed, Ring) of
-      {error, invalid_resize_claim} = Err -> Err;
-      {ok, NextRing} ->
-          Acc2 = [{Ring, NextRing} | Acc],
-          case not same_plan(Ring, NextRing) of
-            true ->
-                FutureRing = riak_core_ring:future_ring(NextRing),
-                compute_all_next_rings([], Seed, FutureRing, Acc2);
-            false -> {ok, lists:reverse(Acc2)}
-          end
+    {ok, NextRing} = compute_next_ring(Changes, Seed, Ring),
+    Acc2 = [{Ring, NextRing} | Acc],
+    case not same_plan(Ring, NextRing) of
+      true ->
+          FutureRing = riak_core_ring:future_ring(NextRing),
+          compute_all_next_rings([], Seed, FutureRing, Acc2);
+      false -> {ok, lists:reverse(Acc2)}
     end.
 
 %% @private
@@ -563,103 +508,7 @@ compute_next_ring(Changes, Seed, Ring) ->
     {_, Ring3} = maybe_handle_joining(node(), Ring2),
     {_, Ring4} = do_claimant_quiet(node(), Ring3, Replacing,
                                    Seed),
-    {Valid, Ring5} = maybe_compute_resize(Ring, Ring4),
-    case Valid of
-      false -> {error, invalid_resize_claim};
-      true -> {ok, Ring5}
-    end.
-
-%% @private
-maybe_compute_resize(Orig, MbResized) ->
-    OrigSize = riak_core_ring:num_partitions(Orig),
-    NewSize = riak_core_ring:num_partitions(MbResized),
-    case OrigSize =/= NewSize of
-      false -> {true, MbResized};
-      true ->
-          validate_resized_ring(compute_resize(Orig, MbResized))
-    end.
-
-%% @private
-%% @doc Adjust resized ring and schedule first resize transfers.
-%% Because riak_core_ring:resize/2 modifies the chash structure
-%% directly the ring calculated in this plan (`Resized') is used
-%% to determine the future ring but the changes are applied to
-%% the currently installed ring (`Orig') so that the changes to
-%% the chash are not committed to the ring manager
-compute_resize(Orig, Resized) ->
-    %% need to operate on balanced, future ring (apply changes determined by claim)
-    CState0 = riak_core_ring:future_ring(Resized),
-    Type = case riak_core_ring:num_partitions(Orig) <
-                  riak_core_ring:num_partitions(Resized)
-               of
-             true -> larger;
-             false -> smaller
-           end,
-    %% Each index in the original ring must perform several transfers
-    %% to properly resize the ring. The first transfer for each index
-    %% is scheduled here. Subsequent transfers are scheduled by vnode
-    CState1 = lists:foldl(fun ({Idx, _} = IdxOwner,
-                               CStateAcc) ->
-                                  %% indexes being abandoned in a shrinking ring have
-                                  %% no next owner
-                                  NextOwner = try
-                                                riak_core_ring:index_owner(CStateAcc,
-                                                                           Idx)
-                                              catch
-                                                error:{badmatch, false} -> none
-                                              end,
-                                  schedule_first_resize_transfer(Type, IdxOwner,
-                                                                 NextOwner,
-                                                                 CStateAcc)
-                          end,
-                          CState0, riak_core_ring:all_owners(Orig)),
-    riak_core_ring:set_pending_resize(CState1, Orig).
-
-%% @private
-%% @doc determine the first resize transfer a partition should perform with
-%% the goal of ensuring the transfer will actually have data to send to the
-%% target.
-schedule_first_resize_transfer(smaller,
-                               {Idx, _} = IdxOwner, none, Resized) ->
-    %% partition no longer exists in shrunk ring, first successor will be
-    %% new owner of its data
-    Target = hd(riak_core_ring:preflist(hash:as_binary(Idx),
-                                        Resized)),
-    riak_core_ring:schedule_resize_transfer(Resized,
-                                            IdxOwner, Target);
-schedule_first_resize_transfer(_Type,
-                               {Idx, Owner} = IdxOwner, Owner, Resized) ->
-    %% partition is not being moved during expansion, first predecessor will
-    %% own at least a portion of its data
-    Target = hd(chash:predecessors(Idx - 1,
-                                   riak_core_ring:chash(Resized))),
-    riak_core_ring:schedule_resize_transfer(Resized,
-                                            IdxOwner, Target);
-schedule_first_resize_transfer(_,
-                               {Idx, _Owner} = IdxOwner, NextOwner, Resized) ->
-    %% partition is being moved during expansion, schedule transfer to partition
-    %% on new owner since it will still own some of its data
-    riak_core_ring:schedule_resize_transfer(Resized,
-                                            IdxOwner, {Idx, NextOwner}).
-
-%% @doc verify that resized ring was properly claimed (no owners are the dummy
-%%      resized owner) in both the current and future ring
-validate_resized_ring(Ring) ->
-    FutureRing = riak_core_ring:future_ring(Ring),
-    Owners = riak_core_ring:all_owners(Ring),
-    FutureOwners = riak_core_ring:all_owners(FutureRing),
-    Members = riak_core_ring:all_members(Ring),
-    FutureMembers = riak_core_ring:all_members(FutureRing),
-    Invalid1 = [{Idx, Owner}
-                || {Idx, Owner} <- Owners,
-                   not lists:member(Owner, Members)],
-    Invalid2 = [{Idx, Owner}
-                || {Idx, Owner} <- FutureOwners,
-                   not lists:member(Owner, FutureMembers)],
-    case Invalid1 ++ Invalid2 of
-      [] -> {true, Ring};
-      _ -> {false, Ring}
-    end.
+    {ok, Ring4}.
 
 %% @private
 apply_changes(Ring, Changes) ->
@@ -697,15 +546,7 @@ change({{force_replace, NewNode}, Node}, Ring) ->
                                       NewNode),
     Ring3 = riak_core_ring:change_owners(Ring2, Reassign),
     Ring4 = riak_core_ring:remove_member(Node, Ring3, Node),
-    case riak_core_ring:is_resizing(Ring4) of
-      true ->
-          replace_node_during_resize(Ring4, Node, NewNode);
-      false -> Ring4
-    end;
-change({{resize, NewRingSize}, _Node}, Ring) ->
-    riak_core_ring:resize(Ring, NewRingSize);
-change({abort_resize, _Node}, Ring) ->
-    riak_core_ring:set_pending_resize_abort(Ring).
+    Ring4.
 
 %%noinspection ErlangUnboundVariable
 internal_ring_changed(Node, CState) ->
@@ -841,10 +682,8 @@ maybe_update_ring(Node, CState, Replacing, Seed, Log) ->
                 %% active nodes.
                 {false, CState};
             _ ->
-                Resizing = riak_core_ring:is_resizing(CState),
                 {Changed, CState2} = update_ring(Node, CState,
-                                                 Replacing, Seed, Log,
-                                                 Resizing),
+                                                 Replacing, Seed, Log),
                 {Changed, CState2}
           end;
       _ -> {false, CState}
@@ -918,8 +757,7 @@ maybe_handle_joining(Node, Joining, CState) ->
     end.
 
 %% @private
-update_ring(CNode, CState, Replacing, Seed, Log,
-            false) ->
+update_ring(CNode, CState, Replacing, Seed, Log) ->
     Next0 = riak_core_ring:pending_changes(CState),
     ?ROUT("Members: ~p~n",
           [riak_core_ring:members(CState,
@@ -972,26 +810,6 @@ update_ring(CNode, CState, Replacing, Seed, Log,
           CState6 = riak_core_ring:increment_ring_version(CNode,
                                                           CState5),
           {true, CState6};
-      false -> {false, CState}
-    end;
-update_ring(CNode, CState, _Replacing, _Seed, _Log,
-            true) ->
-    {Installed, CState1} =
-        maybe_install_resized_ring(CState),
-    {Aborted, CState2} =
-        riak_core_ring:maybe_abort_resize(CState1),
-    Changed = Installed orelse Aborted,
-    case Changed of
-      true ->
-          CState3 = riak_core_ring:increment_ring_version(CNode,
-                                                          CState2),
-          {true, CState3};
-      false -> {false, CState}
-    end.
-
-maybe_install_resized_ring(CState) ->
-    case riak_core_ring:is_resize_complete(CState) of
-      true -> {true, riak_core_ring:future_ring(CState)};
       false -> {false, CState}
     end.
 
@@ -1147,41 +965,6 @@ remove_node(CState, Node, Status, Replacing, Seed, Log,
     CState3 = riak_core_ring:set_pending_changes(CState2,
                                                  Next2),
     CState3.
-
-replace_node_during_resize(CState0, Node, NewNode) ->
-    PostResize = riak_core_ring:is_post_resize(CState0),
-    CState1 = replace_node_during_resize(CState0, Node,
-                                         NewNode, PostResize),
-    riak_core_ring:increment_ring_version(riak_core_ring:claimant(CState1),
-                                          CState1).
-
-replace_node_during_resize(CState0, Node, NewNode,
-                           false) -> %% ongoing xfers
-    %% for each of the indices being moved from Node to NewNode, reschedule resize
-    %% transfers where the target is owned by Node.
-    CState1 =
-        riak_core_ring:reschedule_resize_transfers(CState0,
-                                                   Node, NewNode),
-    %% since the resized chash is carried directly in state vs. being rebuilt via next
-    %% list, perform reassignment
-    {ok, FutureCHash} =
-        riak_core_ring:resized_ring(CState1),
-    FutureCState = riak_core_ring:set_chash(CState1,
-                                            FutureCHash),
-    ReassignedFuture = reassign_indices_to(Node, NewNode,
-                                           FutureCState),
-    ReassignedCHash =
-        riak_core_ring:chash(ReassignedFuture),
-    riak_core_ring:set_resized_ring(CState1,
-                                    ReassignedCHash);
-replace_node_during_resize(CState, Node, _NewNode,
-                           true) -> %% performing cleanup
-    %% we are simply deleting data at this point, no reason to do that on either node
-    NewNext = [{I, N, O, M, S}
-               || {I, N, O, M, S}
-                      <- riak_core_ring:pending_changes(CState),
-                  N =/= Node],
-    riak_core_ring:set_pending_changes(CState, NewNext).
 
 no_log(_, _) -> ok.
 

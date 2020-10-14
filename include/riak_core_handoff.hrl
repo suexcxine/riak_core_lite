@@ -18,7 +18,7 @@
         }).
 
 -type ho_stats() :: #ho_stats{}.
--type ho_type() :: ownership | hinted | repair | resize.
+-type ho_type() :: ownership | hinted | repair.
 -type predicate() :: fun((any()) -> boolean()).
 
 -type index() :: chash:index_as_int().
@@ -47,4 +47,4 @@
 -type known_handoff() :: {{module(), index()},
                            {ho_type()|'delete',
                             'inbound'|'outbound'|'local',
-                            node()|'$resize'|'$delete'}}.
+                            node() |'$delete'}}.

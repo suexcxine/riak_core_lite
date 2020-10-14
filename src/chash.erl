@@ -319,7 +319,6 @@ predecessors(Index, CHash) ->
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
     %% Used to
-    %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
     predecessors(Index, CHash, chash:size(CHash)).
 
@@ -337,7 +336,6 @@ predecessors(Index, CHash, N) ->
     %% where and how this is used adaptations need to be done in the affected
     %% modules.
     %% Used to
-    %% - find first predecessor when scheduling resize in riak_core_claimant
     %% - find repair pairs in riak_core_vnode_manager
     Num = max_n(N, CHash),
     {Res, _} = lists:split(Num,
@@ -407,8 +405,7 @@ successors(Index, CHash, N) ->
 %% TODO
 %% Find usages and adapt them according to implementation in this module.
 %% Used to
-%% - resizing the ring
-%% - renaming a node
+%% - renaming a node -> ok
 %% - transferring a node to a partition
 update(IndexAsInt, Name, CHash) ->
     {Nodes, _} = CHash,

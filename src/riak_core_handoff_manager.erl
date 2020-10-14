@@ -440,42 +440,6 @@ filter({Key, Value} = _Filter) ->
             end
     end.
 
-resize_transfer_filter(Ring, Module, Src, Target) ->
-    fun (K) ->
-            {_, Hashed} = Module:object_info(K),
-            riak_core_ring:is_future_index(Hashed, Src, Target,
-                                           Ring)
-    end.
-
-resize_transfer_notsent_fun(Ring, Module, Src) ->
-    Shrinking = riak_core_ring:num_partitions(Ring) >
-                  riak_core_ring:future_num_partitions(Ring),
-    {NValMap, DefaultN} = case Shrinking of
-                            false -> {undefined, undefined};
-                            true ->
-                                {ok, DefN} = application:get_env(riak_core,
-                                                                 target_n_val),
-                                {Module:nval_map(Ring), DefN}
-                          end,
-    fun (Key, Acc) ->
-            record_seen_index(Ring, Shrinking, NValMap, DefaultN,
-                              Module, Src, Key, Acc)
-    end.
-
-record_seen_index(Ring, Shrinking, NValMap, DefaultN,
-                  Module, Src, Key, Seen) ->
-    {Bucket, Hashed} = Module:object_info(Key),
-    CheckNVal = case Shrinking of
-                  false -> undefined;
-                  true -> proplists:get_value(Bucket, NValMap, DefaultN)
-                end,
-    case riak_core_ring:future_index(Hashed, Src, CheckNVal,
-                                     Ring)
-        of
-      undefined -> Seen;
-      FutureIndex -> ordsets:add_element(FutureIndex, Seen)
-    end.
-
 get_concurrency_limit() ->
     application:get_env(riak_core, handoff_concurrency,
                         ?HANDOFF_CONCURRENCY).
@@ -541,13 +505,6 @@ send_handoff(HOType, {Mod, Src, Target}, Node, Vnode,
                       HOFilter = Filter,
                       HOAcc0 = undefined,
                       HONotSentFun = undefined;
-                  resize ->
-                      {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-                      HOFilter = resize_transfer_filter(Ring, Mod, Src,
-                                                        Target),
-                      HOAcc0 = ordsets:new(),
-                      HONotSentFun = resize_transfer_notsent_fun(Ring, Mod,
-                                                                 Src);
                   _ ->
                       HOFilter = none,
                       HOAcc0 = undefined,
