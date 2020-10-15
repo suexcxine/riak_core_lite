@@ -20,6 +20,8 @@
 
 -module(riak_core_handoff_listener_sup).
 
+%% documentation status: done
+
 -behaviour(supervisor).
 
 %% beahvior functions
@@ -29,11 +31,18 @@
         {I, {I, start_link, []}, permanent, brutal_kill, Type,
          [I]}).
 
-%% begins the supervisor, init/1 will be called
+%% @doc Begin the supervisor, init/1 will be called
+%% @see supervisor:start_link/3.
+-spec start_link() -> {ok, pid()} | {error, {already_started, pid()} | {shutdown | reason} | term()} | ignore.
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @private
+%% @doc Callback for {@link supervisor:start_link/3}. Starts the
+%%      `riak_core_handoff_listener' as its supervised child. 
+-spec init([]) -> {ok, {{one_for_one, 10, 10}, [term()]}}.
+
 init([]) ->
     {ok,
      {{one_for_one, 10, 10},
