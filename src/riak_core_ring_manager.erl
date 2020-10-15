@@ -131,7 +131,8 @@ get_my_ring() ->
     end.
 
 %% @doc Retrieve the ring currently stored on this local node.
--spec get_raw_ring() -> ring().
+-spec get_raw_ring() -> {ok, ring()}.
+
 get_raw_ring() ->
     try Ring = ets:lookup_element(?ETS, raw_ring, 2),
         {ok, Ring}
