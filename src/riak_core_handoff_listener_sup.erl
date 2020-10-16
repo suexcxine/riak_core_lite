@@ -51,7 +51,8 @@ start_link() ->
                    {{one_for_one, 10, 10},
                     [{riak_core_handoff_listener,
                       {riak_core_handoff_listener, start_link, []}, permanent,
-                      brutal_kill, worker, [riak_core_handoff_listener]}, ...]}}.
+                      brutal_kill, worker,
+                      [riak_core_handoff_listener]}, ...]}}.
 
 init([]) ->
     {ok,
