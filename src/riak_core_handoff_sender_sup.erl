@@ -85,7 +85,8 @@ start_sender(Type, Module, TargetNode, VNode, Opts) ->
                    {{simple_one_for_one, 10, 10},
                     [{riak_core_handoff_sender,
                       {riak_core_handoff_sender, start_link, []}, temporary,
-                      brutal_kill, worker, [riak_core_handoff_sender]}, ...]}}.
+                      brutal_kill, worker,
+                      [riak_core_handoff_sender]}, ...]}}.
 
 init([]) ->
     {ok,
