@@ -147,11 +147,9 @@ handle_info(timeout, State) ->
 %% @param MsgType Code for the type of message.
 %% @param MsgData Binary encoding of data.
 %% @param State Current state.
-%% @returns The updated state after the message has been processessed or `true'
-%%          if {@link erlang:exit/1} has been called.
+%% @returns The updated state after the message has been processed.
 -spec process_message(MsgType :: integer(),
-                      MsgData :: binary(), State :: state()) -> state() |
-                                                                true.
+                      MsgData :: binary(), State :: state()) -> state().
 
 process_message(?PT_MSG_INIT, MsgData,
                 State = #state{vnode_mod = VNodeMod, peer = Peer}) ->
