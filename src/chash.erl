@@ -62,10 +62,11 @@
 
 %% chash API
 -export([contains_name/2, fresh/1, lookup/2,
-         lookup_node_entry/2, key_of/1, members/1, next_index/2,
-         nodes/1, node_size/2, offsets/1, predecessors/2,
-         predecessors/3, ring_increment/1, size/1, successors/2,
-         successors/3, update/3]).
+         lookup_node_entry/2, key_of/1, make_handoff_chash/2,
+         members/1, next_index/2, nodes/1, node_size/2,
+         offsets/1, predecessors/2, predecessors/3,
+         ring_increment/1, size/1, successors/2, successors/3,
+         update/3]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -413,6 +414,24 @@ update(IndexAsInt, Name, CHash) ->
                                 {IndexAsInt, Name}),
     {NewNodes, stale}.
 
+%% @doc Create the intermediate chash structures containing indices of both the
+%%      original and the future structure. The indices are owned by nodes such
+%%      that there is no difference in ownership of keys on the structures.
+%% @param OriginalCHash CHash structure of the ring handing off.
+%% @param NextCHash CHash structure of the ring receiving a handoff.
+%% @returns Tuple of both the original and next chash structure with same
+%%          indices and adapted owners.
+-spec make_handoff_chash(OriginalCHash :: chash(),
+                         NextCHash :: chash()) -> {chash(), chash()}.
+
+make_handoff_chash({OriginalIndexList, _},
+                   {NextIndexList, _}) ->
+    {HandoffOriginalIndexList, HandoffNextIndexList} =
+        make_handoff_index_lists(OriginalIndexList,
+                                 NextIndexList),
+    {{HandoffOriginalIndexList, stale},
+     {HandoffNextIndexList, stale}}.
+
 %% ====================================================================
 %% Internal functions
 %% ====================================================================
@@ -649,6 +668,84 @@ chash_gb_next1(X, {Key, _Val, _Left, Right}, IsRoot,
     end;
 chash_gb_next1(_X, nil, _, _ZeroNode) -> nil.
 
+%% @private
+%% @doc Helper function for {@link make_handoff_chash/2}. Merges both index
+%%      lists such that they contain the same indices but the ownership of keys
+%%      is not changed.
+%% @param OriginalIndexList Index list of the original chash structure.
+%% @param NextIndexList Index list of the future chash structure.
+%% @returns Tupel of original and future index lists.
+-spec make_handoff_index_lists(OriginalIndexList ::
+                                   index_list(),
+                               NextIndexList :: index_list()) -> {index_list(),
+                                                                  index_list()}.
+
+make_handoff_index_lists([], []) -> [];
+make_handoff_index_lists([{0, OZ} | _] =
+                             OriginalIndexList,
+                         [{0, NZ} | _] = NextIndexList) ->
+    make_handoff_index_lists(OriginalIndexList,
+                             NextIndexList, [], [], OZ, NZ).
+
+%% @private
+%% @doc Helper for {@link make_handoff_index_list/2}.
+%% @param OriginalIndexList Current working list of the original index list.
+%% @param NextIndexList Current working list of the future index list.
+%% @param OriginalAcc Accumulator list for the merged original list.
+%% @param NextAcc Accumulator list for the merged future list.
+%% @param OriginalZeroNode Node owning the index `0' on the original list.
+%% @param NextZeroNode Node owning the index `0' on the future list.
+%% @returns Tuple of merged index lists.
+-spec make_handoff_index_lists(OriginalIndexList ::
+                                   index_list(),
+                               NextIndexList :: index_list(),
+                               OriginalAcc :: index_list(),
+                               NextAcc :: index_list(),
+                               OriginalZeroNode :: chash_node(),
+                               NextZeroNode :: chash_node()) -> {index_list(),
+                                                                 index_list()}.
+
+make_handoff_index_lists([], [], OriginalAcc, NextAcc,
+                         _OriginalZeroNode, _NextZeroNode) ->
+    {lists:reverse(OriginalAcc), lists:reverse(NextAcc)};
+make_handoff_index_lists([{OI, ON} | OR], [],
+                         OriginalAcc, NextAcc, OriginalZeroNode,
+                         NextZeroNode) ->
+    make_handoff_index_lists(OR, [],
+                             [{OI, ON} | OriginalAcc],
+                             [{OI, NextZeroNode} | NextAcc], OriginalZeroNode,
+                             NextZeroNode);
+make_handoff_index_lists([], [{NI, NN} | NR],
+                         OriginalAcc, NextAcc, OriginalZeroNode,
+                         NextZeroNode) ->
+    make_handoff_index_lists([], NR,
+                             [{NI, OriginalZeroNode} | OriginalAcc],
+                             [{NI, NN} | NextAcc], OriginalZeroNode,
+                             NextZeroNode);
+make_handoff_index_lists([{OI, ON} | OR],
+                         [{NI, NN} | NR], OriginalAcc, NextAcc,
+                         OriginalZeroNode, NextZeroNode) ->
+    case OI < NI of
+      true ->
+          make_handoff_index_lists(OR, [{NI, NN} | NR],
+                                   [{OI, ON} | OriginalAcc],
+                                   [{OI, NN} | NextAcc], OriginalZeroNode,
+                                   NextZeroNode);
+      false ->
+          case OI > NI of
+            true ->
+                make_handoff_index_lists([{OI, ON} | OR], NR,
+                                         [{NI, ON} | OriginalAcc],
+                                         [{NI, NN} | NextAcc], OriginalZeroNode,
+                                         NextZeroNode);
+            false ->
+                make_handoff_index_lists(OR, NR,
+                                         [{OI, ON} | OriginalAcc],
+                                         [{NI, NN} | NextAcc], OriginalZeroNode,
+                                         NextZeroNode)
+          end
+    end.
+
 %% ===================================================================
 %% EUnit tests
 %% ===================================================================
@@ -705,5 +802,30 @@ inverse_pred_test() ->
          || {I, _}
                 <- chash:predecessors(chash:key_of(4), CHash)],
     ?assertEqual(S, (lists:reverse(P))).
+
+handoff_chash_same_test() ->
+    CHash = {[{0, node0}, {1, node1}, {2, node2},
+              {3, node3}],
+             stale},
+    {OHC, NHC} = make_handoff_chash(CHash, CHash),
+    ?assertEqual(CHash, OHC),
+    ?assertEqual(CHash, NHC).
+
+handoff_chash_simple_test() ->
+    OCHash = {[{0, node0}, {2, node1}, {3, node2},
+               {6, node3}, {8, node2}],
+              stale},
+    NCHash = {[{0, node0}, {1, node1}, {2, node2},
+               {5, node4}, {6, node2}],
+              stale},
+    {OHC, NHC} = make_handoff_chash(OCHash, NCHash),
+    ExpectedOHC = {[{0, node0}, {1, node1}, {2, node1},
+                    {3, node2}, {5, node3}, {6, node3}, {8, node2}],
+                   stale},
+    ExpectedNHC = {[{0, node0}, {1, node1}, {2, node2},
+                    {3, node4}, {5, node4}, {6, node2}, {8, node0}],
+                   stale},
+    ?assertEqual(OHC, ExpectedOHC),
+    ?assertEqual(NHC, ExpectedNHC).
 
 -endif.
