@@ -62,11 +62,11 @@
 
 %% chash API
 -export([contains_name/2, fresh/1, lookup/2,
-         lookup_node_entry/2, key_of/1, make_handoff_chash/2,
-         members/1, next_index/2, nodes/1, node_size/2,
-         offsets/1, predecessors/2, predecessors/3,
-         ring_increment/1, size/1, successors/2, successors/3,
-         update/3]).
+         lookup_node_entry/2, key_of/1, index_to_partition_id/2,
+         make_handoff_chash/2, members/1, next_index/2, nodes/1,
+         node_size/2, offsets/1, partition_id_to_index/2,
+         predecessors/2, predecessors/3, ring_increment/1,
+         size/1, successors/2, successors/3, update/3]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -272,11 +272,6 @@ next_index(IntegerKey, {IndexList, stale}) ->
                {IndexList, chash_index_list_to_index_tree(IndexList)});
 next_index(IntegerKey,
            {[{0, ZeroNode} | _], IndexTree}) ->
-    %% TODO
-    %% Since there is no ring structure there is no simple next index. The next
-    %% index is determined by the replication strategy.
-    %% Used to
-    %% - find the integer partition index of a key
     {Index, _Node} = query_tree(IntegerKey, IndexTree,
                                 ZeroNode),
     Index.
@@ -431,6 +426,36 @@ make_handoff_chash({OriginalIndexList, _},
                                  NextIndexList),
     {{HandoffOriginalIndexList, stale},
      {HandoffNextIndexList, stale}}.
+
+%% @doc Compute the index of the partition starting at 0 the key belongs to.
+%% @param Key Key to compute the partition index for.
+%% @param CHash Chash structure to compute the partition index on.
+%% @returns Partition index.
+-spec index_to_partition_id(Index :: index_as_int(),
+                            CHash :: chash()) -> integer() | undefined.
+
+index_to_partition_id(Index,
+                      {[{0, _} | IndexList], _}) ->
+    index_to_partition_id(hash:as_integer(Index), IndexList, 0).
+
+%% @doc Compute the index owned by the node owning the partition with the given
+%%      ID.
+%% @param Partition Integer indicating the place of the partition in the index
+%%        list, starting at 0.
+%% @param CHash CHash structure to compute the index on.
+%% @returns Integer index of the node owning the partition or undefined if the
+%%          partition ID does not exist.
+-spec partition_id_to_index(PartitionID :: integer(),
+                            CHash :: chash()) -> index_as_int() | undefined.
+
+partition_id_to_index(PartitionID,
+                      {[{0, _} | IndexList], _}) ->
+    L = length(IndexList) + 1,
+    case {L < PartitionID, L =:= PartitionID} of
+      {true, _} -> undefined;
+      {_, true} -> 0;
+      {false, false} -> lists:nth(PartitionID, IndexList)
+    end.
 
 %% ====================================================================
 %% Internal functions
@@ -744,6 +769,23 @@ make_handoff_index_lists([{OI, ON} | OR],
                                          [{NI, NN} | NextAcc], OriginalZeroNode,
                                          NextZeroNode)
           end
+    end.
+
+%% @private
+%% @doc Helper for {@linkk key_to_partition_id/2}.
+%% @param Key Integer key.
+%% @param IndexList List of Indices without an entry for `0'.
+%% @returns Index of the partition the key belongs to.
+-spec index_to_partition_id(Index :: integer(),
+                            IndexList :: index_list(),
+                            CurrentID :: integer()) -> integer() | undefined.
+
+index_to_partition_id(_, [], CurrentID) -> CurrentID;
+index_to_partition_id(Index, [{I, _} | R], CurrentID)
+    when I /= 0 ->
+    case Index =:= I of
+      true -> CurrentID;
+      false -> index_to_partition_id(Index, R, CurrentID + 1)
     end.
 
 %% ===================================================================

@@ -31,6 +31,8 @@
 
 -endif.
 
+-type ring() :: riak_core_ring:riak_core_ring().
+
 %% @doc Forcibly assign a partition to a specific node
 assign(Partition, ToNode) ->
     F = fun (Ring, _) ->
@@ -42,9 +44,14 @@ assign(Partition, ToNode) ->
     ok.
 
 %% @doc Check the local ring for any preflists that do not satisfy n_val
+-spec check_ring() -> [riak_core_ring:preflist()].
+
 check_ring() ->
     {ok, R} = riak_core_ring_manager:get_my_ring(),
     check_ring(R).
+
+-spec check_ring(Ring ::
+                     ring()) -> [riak_core_ring:preflist()].
 
 check_ring(Ring) ->
     {ok, Nval} = application:get_env(riak_core,
@@ -52,6 +59,9 @@ check_ring(Ring) ->
     check_ring(Ring, Nval).
 
 %% @doc Check a ring for any preflists that do not satisfy n_val
+-spec check_ring(Ring :: ring(),
+                 NVal :: pos_integer()) -> [riak_core_ring:preflist()].
+
 check_ring(Ring, Nval) ->
     Preflists = riak_core_ring:all_preflists(Ring, Nval),
     lists:foldl(fun (PL, Acc) ->
@@ -68,6 +78,8 @@ check_ring(Ring, Nval) ->
                            riak_core_ring:ring_size()) -> riak_core_ring:partition_id().
 
 %% @doc Map a key hash (as binary or integer) to a partition ID [0, ring_size)
+%% @deprecated Need to use {@link riak_core_ring:responsible_index/2} and
+%%             {@link chash:index_to_partition_id/2}.
 hash_to_partition_id(CHashKey, RingSize)
     when is_binary(CHashKey) ->
     CHashInt = hash:as_integer(CHashKey),
@@ -80,6 +92,7 @@ hash_to_partition_id(CHashInt, RingSize) ->
                           pos_integer()) -> chash:index_as_int().
 
 %% @doc Identify the first key hash (integer form) in a partition ID [0, ring_size)
+%% @deprecated Need to use {@link chash:partition_id_to_index/2}.
 partition_id_to_hash(Id, RingSize) ->
     Id * chash:ring_increment(RingSize).
 

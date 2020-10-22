@@ -56,9 +56,8 @@
          ring_ready/0, ring_ready/1, ring_ready_info/1,
          ring_changed/2, set_cluster_name/2, reconcile_names/2,
          reconcile_members/2, is_primary/2, chash/1, set_chash/2,
-         future_index/3, future_index/4, future_index/5,
-         is_future_index/4, future_owner/2,
-         future_num_partitions/1, vnode_type/2,
+         future_index/3, future_index/4, is_future_index/4,
+         future_owner/2, future_num_partitions/1, vnode_type/2,
          deletion_complete/3]).
 
                                %%         upgrade/1,
@@ -122,6 +121,8 @@
 
 %% @type partition_id(). This integer represents a value in the range [0, ring_size-1].
 -type partition_id() :: non_neg_integer().
+
+-type preflist() :: [{integer(), term()}].
 
 %% ===================================================================
 %% Public API
@@ -211,12 +212,12 @@ all_owners(State) ->
      || {I, N} <- chash:nodes(State#chstate.chring)].
 
 %% @doc Provide every preflist in the ring, truncated at N.
+%% @deprecated There is now a unique preference list per element of the hash
+%%             space instead of per partition. Computing all preflists is not
+%%             feasible.
 -spec all_preflists(State :: chstate(),
-                    N :: integer()) -> [[{Index :: integer(),
-                                          Node :: term()}]].
+                    N :: integer()) -> [preflist()].
 
-%% TODO With random slicing a preference list is not defined by section but by
-%% key. It is not feasible to return a preference list for each key.
 all_preflists(State, N) ->
     [lists:sublist(preflist(Key, State), N)
      || Key
@@ -224,11 +225,10 @@ all_preflists(State, N) ->
                 || {I, _Owner} <- (?MODULE):all_owners(State)]].
 
 %% @doc For two rings, return the list of owners that have differing ownership.
--spec diff_nodes(chstate(),
-                 chstate()) -> [node()].%% node() not consistent with chash implementation
+-spec diff_nodes(chstate(), chstate()) -> [node()].
 
-%% TODO This only works for fixed sections. With random slicing this would most
-%% likely return the full set of nodes.
+                                        %% node() not consistent with chash implementation
+
 diff_nodes(State1, State2) ->
     AO = lists:zip(all_owners(State1), all_owners(State2)),
     AllDiff = [[N1, N2]
@@ -426,7 +426,8 @@ reconcile(ExternState, MyState) ->
 
 rename_node(State = #chstate{chring = Ring,
                              nodename = ThisNode, members = Members,
-                             claimant = Claimant, seen = Seen},
+                             weights = Weights, claimant = Claimant,
+                             seen = Seen},
             OldNode, NewNode)
     when is_atom(OldNode), is_atom(NewNode) ->
     State#chstate{chring =
@@ -439,6 +440,9 @@ rename_node(State = #chstate{chring = Ring,
                                           end
                                   end,
                                   Ring, riak_core_ring:all_owners(State)),
+                  weights =
+                      proplists:substitute_aliases([{OldNode, NewNode}],
+                                                   Weights),
                   members =
                       orddict:from_list(proplists:substitute_aliases([{OldNode,
                                                                        NewNode}],
@@ -495,64 +499,29 @@ future_index(CHashKey, OrigIdx, State) ->
                    State :: chstate()) -> integer() | undefined.
 
 future_index(CHashKey, OrigIdx, NValCheck, State) ->
-    OrigCount = num_partitions(State),
-    NextCount = future_num_partitions(State),
-    future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
-                 NextCount).
-
-%% @doc Determine which ring index will own the given key in the future ring.
-%% @param ChashKey The key for which the future owner is to be determined.
-%% @param OrigIdx Index of the original key owner.
-%% @param NValCheck Upper bound for N if defined.
-%% @param OrigCount Number of partitions in the original ring.
-%% @param NextCount Number of partitions in the future ring.
-%% @returns The future index if it is valid, else `undefined'.
-%% @see future_index/3
--spec future_index(CHashKey :: chash:index(),
-                   OrigIdx :: integer(),
-                   NValCheck :: undefined | integer(),
-                   OrigCount :: pos_integer(),
-                   NextCount :: pos_integer()) -> integer() | undefined.
-
-future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
-             NextCount) ->
-    CHashInt = hash:as_integer(CHashKey),
-    OrigInc = chash:ring_increment(OrigCount),
-    NextInc = chash:ring_increment(NextCount),
-    %% Determine position in the ring of partition that owns key (head of preflist)
-    %% Position is 1-based starting from partition (0 + ring increment), e.g.
-    %% index 0 is always position N.
-    OwnerPos = CHashInt div OrigInc + 1,
-    %% Determine position of the source partition in the ring
-    %% if OrigIdx is 0 we know the position is OrigCount (number of partitions)
-    OrigPos = case OrigIdx of
-                0 -> OrigCount;
-                _ -> OrigIdx div OrigInc
-              end,
-    %% The distance between the key's owner (head of preflist) and the source partition
-    %% is the position of the source in the preflist, the distance may be negative
-    %% in which case we have wrapped around the ring. distance of zero means the source
-    %% is the head of the preflist.
-    OrigDist = case OrigPos - OwnerPos of
-                 P when P < 0 -> OrigCount + P;
-                 P -> P
-               end,
-    %% In the case that the ring is shrinking the future index for a key whose position
-    %% in the preflist is >= ring size may be calculated, any transfer is invalid in
-    %% this case, return undefined. The position may also be >= an optional N value for
-    %% the key, if this is true undefined is also returned
-    case check_invalid_future_index(OrigDist, NextCount,
-                                    NValCheck)
-        of
-      true -> undefined;
-      false ->
-          %% Determine the partition (head of preflist) that will own the key in the future ring
-          FuturePos = CHashInt div NextInc + 1,
-          NextOwner = FuturePos * NextInc,
+    OrigPrefList = preflist(CHashKey, State),
+    NextPrefList = preflist(CHashKey, future_ring(State)),
+    %% Determine position of the source partition in the preference list
+    {OrigPos, Found} = lists:foldl(fun ({Idx, _},
+                                        {Pos, Found}) ->
+                                           case {Found, Idx =:= OrigIdx} of
+                                             {true, _} -> {Pos, true};
+                                             {false, false} -> {Pos + 1, false};
+                                             {false, true} -> {Pos, true}
+                                           end
+                                   end,
+                                   {0, false}, OrigPrefList),
+    NextCount = length(NextPrefList),
+    Invalid = check_invalid_future_index(OrigPos, NextCount,
+                                         NValCheck),
+    case {Found, Invalid} of
+      {false, _} -> undefined;
+      {_, true} -> undefined;
+      {true, false} ->
           %% Determine the partition that the key should be transferred to (has same position
           %% in future preflist as source partition does in current preflist)
-          RingTop = trunc(math:pow(2, 160) - 1),
-          (NextOwner + NextInc * OrigDist) rem RingTop
+          {NextIdx, _} = lists:nth(OrigPos + 1, NextPrefList),
+          NextIdx
     end.
 
 %% @doc Check if the index is either out of bounds of the ring size or the n
@@ -561,12 +530,12 @@ future_index(CHashKey, OrigIdx, NValCheck, OrigCount,
                                  pos_integer(),
                                  integer() | undefined) -> boolean().
 
-check_invalid_future_index(OrigDist, NextCount,
+check_invalid_future_index(OrigPos, NextCount,
                            NValCheck) ->
-    OverRingSize = OrigDist >= NextCount,
+    OverRingSize = OrigPos >= NextCount,
     OverNVal = case NValCheck of
                  undefined -> false;
-                 _ -> OrigDist >= NValCheck
+                 _ -> OrigPos >= NValCheck
                end,
     OverRingSize orelse OverNVal.
 
