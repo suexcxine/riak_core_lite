@@ -847,7 +847,6 @@ future_indices(State, Node) ->
 -spec all_next_owners(chstate()) -> [{integer(),
                                       term()}].
 
-%% WARN Uses chash() structure directly
 all_next_owners(CState) ->
     Next = riak_core_ring:pending_changes(CState),
     [{Idx, NextOwner} || {Idx, _, NextOwner, _, _} <- Next].
@@ -955,10 +954,10 @@ next_owner(State, Idx, Mod) ->
 %% @param NInfo Entry of the next owner list.
 %% @param Mod VNode module to be considered in the transfer.
 %% @returns Pair of owner and next owner and the transfer status.
-%% TODO specify type for next owner entries.
 -spec next_owner_status(NInfo :: term() | false,
                         Mod :: atom()) -> pending_change().
 
+%% TODO specify type for next owner entries.
 next_owner_status(NInfo, Mod) ->
     case NInfo of
       false -> {undefined, undefined, undefined};
@@ -1319,6 +1318,7 @@ reconcile_next(Next1, Next2) ->
 %%      may have different Idx/Owner pairs. When different, the
 %%      pair associated with BaseNext is chosen. When equal,
 %%      the merge is the same as in reconcile_next/2.
+%% TODO If next is divergent, it means that different nodes were added in a different order. This means the claimant needs to run again?
 reconcile_divergent_next(BaseNext, OtherNext) ->
     MergedNext = substitute(1, BaseNext, OtherNext),
     lists:zipwith(fun ({Idx, Owner1, Node1, Transfers1,
@@ -1384,24 +1384,12 @@ reconcile_ring(StateA = #chstate{claimant = Claimant1,
             {false, true} ->
                 Next = reconcile_divergent_next(Next2, Next1),
                 StateB#chstate{next = Next};
-            {false, false} ->
+            {_, _} ->
                 %% This can occur when removed/down nodes are still
                 %% up and gossip to each other. We need to pick a
                 %% claimant to handle this case, although the choice
                 %% is irrelevant as a correct valid claimant will
                 %% eventually emerge when the ring converges.
-                %TODO False-false and true-true are the same. _-_ maybe better not repitition
-                case Claimant1 < Claimant2 of
-                  true ->
-                      Next = reconcile_divergent_next(Next1, Next2),
-                      StateA#chstate{next = Next};
-                  false ->
-                      Next = reconcile_divergent_next(Next2, Next1),
-                      StateB#chstate{next = Next}
-                end;
-            {true, true} ->
-                %% This should never happen in normal practice.
-                %% But, we need to handle it for exceptional cases.
                 case Claimant1 < Claimant2 of
                   true ->
                       Next = reconcile_divergent_next(Next1, Next2),

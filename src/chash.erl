@@ -96,11 +96,8 @@
 -opaque index_tree() :: gb_trees:tree(index_as_int(),
                                       chash_node()).
 
-%% Mapping of an owner to its relative weight.
--type owner_weight() :: {chash_node(), weight()}.
-
-%% A owner_weight_list is a mapping of owner_name() to their relative weight.
--type owner_weight_list() :: [owner_weight()].
+%% A owner_weight_list is a mapping of owner name to their relative weight.
+-type owner_weight_list() :: orddict:orddict(chash_node(), pos_integer()).
 
 %% Mapping of node to its difference in weight scaled to hash:max_integer()
 -type diff_map() :: [{chash_node(), integer()}].
