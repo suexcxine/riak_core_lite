@@ -770,13 +770,18 @@ update_ring(CNode, CState, Replacing, Seed, Log) ->
                                    invalid])]),
     ?ROUT("Updating ring :: next0 : ~p~n", [Next0]),
     %% Remove tuples from next for removed nodes
-    ClaimingMembers = riak_core_ring:claiming_members(CState),
-    Weights = [{Node, Weight} || {Node, Weight} <- riak_core_ring:weights(CState), lists:member(Node, ClaimingMembers)],
+    ClaimingMembers =
+        riak_core_ring:claiming_members(CState),
+    Weights = [{Node, Weight}
+               || {Node, Weight} <- riak_core_ring:get_weights(CState),
+                  lists:member(Node, ClaimingMembers)],
     OldCHash = riak_core_ring:chash(CState),
     NewCHash = chash:change(OldCHash, Weights),
-    {OldHOCHash, NewHOCHash} = chash:make_handoff_chash(OldCHash, NewCHash),
+    {OldHOCHash, NewHOCHash} =
+        chash:make_handoff_chash(OldCHash, NewCHash),
     DiffList = chash:diff_list(OldHOCHash, NewHOCHash),
-    Next2 = [{Index, Owner, NextOwner, [], awaiting} || {Index, Owner, NextOwner} <- DiffList],
+    Next2 = [{Index, Owner, NextOwner, [], awaiting}
+             || {Index, Owner, NextOwner} <- DiffList],
     CState1 = riak_core_ring:set_chash(CState, OldHOCHash),
     CState2 = riak_core_ring:set_pending_changes(CState1,
                                                  Next2),
@@ -822,9 +827,9 @@ transfer_ownership(CState, Log) ->
                                  {_, NewOwner, S} =
                                      riak_core_ring:next_owner(NInfo),
                                  not
-                                   ((S == complete) andalso
-                                      (riak_core_ring:index_owner(CState, Idx)
-                                         =:= NewOwner))
+                                   (S == complete andalso
+                                      riak_core_ring:index_owner(CState, Idx)
+                                        =:= NewOwner)
                          end,
                          Next),
     CState2 = lists:foldl(fun (NInfo = {Idx, _, _, _, _},

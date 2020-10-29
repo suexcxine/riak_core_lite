@@ -82,7 +82,6 @@
          chring  ::
              chash:chash() |
              undefined,   % chash ring of {IndexAsInt, Node} mappings
-         weights  :: chash:owner_weight_list() | undefined,
          meta  :: dict:dict() | undefined,
          % dict of cluster-wide other data (primarily N-value, etc)
          clustername  :: {term(), term()} | undefined,
@@ -273,7 +272,6 @@ fresh(LocalName, Nodes = [LocalName | _]) ->
              members =
                  [{LocalName, {valid, VClock, [{gossip_vsn, 2}]}}],
              chring = chash:fresh(Weights), next = [],
-             weights = Weights, %% currently weight not considered
              claimant = LocalName, seen = [{LocalName, VClock}],
              rvsn = VClock, vclock = VClock, meta = dict:new()}.
 
@@ -426,8 +424,7 @@ reconcile(ExternState, MyState) ->
 
 rename_node(State = #chstate{chring = Ring,
                              nodename = ThisNode, members = Members,
-                             weights = Weights, claimant = Claimant,
-                             seen = Seen},
+                             claimant = Claimant, seen = Seen},
             OldNode, NewNode)
     when is_atom(OldNode), is_atom(NewNode) ->
     State#chstate{chring =
@@ -440,9 +437,6 @@ rename_node(State = #chstate{chring = Ring,
                                           end
                                   end,
                                   Ring, riak_core_ring:all_owners(State)),
-                  weights =
-                      proplists:substitute_aliases([{OldNode, NewNode}],
-                                                   Weights),
                   members =
                       orddict:from_list(proplists:substitute_aliases([{OldNode,
                                                                        NewNode}],
@@ -748,8 +742,10 @@ clear_member_meta(Node, State, Member) ->
 -spec add_member(node(), chstate(),
                  node()) -> chstate().
 
-add_member(PNode, #chstate{weights = Weights} = State, Node) ->
-    State2 = State#chstate{weights = orddict:store(Node, 100, Weights)},
+add_member(PNode, State, Node) ->
+    %% Set weight, which is currently not considered outside of ring and chash.
+    State2 = update_member_meta(PNode, State, Node, weight,
+                                100),
     set_member(PNode, State2, Node, joining).
 
 %% @doc Mark a member as invalid
@@ -1156,9 +1152,12 @@ cancel_transfers(Ring) -> Ring#chstate{next = []}.
 
 %% @doc Get current mapping of node name to its weight.
 %% @param Ring Ring to get the weights from.
--spec get_weights(Ring :: chstate()) -> chash:owner_weight_list().
+-spec get_weights(Ring ::
+                      chstate()) -> chash:owner_weight_list().
 
-get_weights(#chstate{weights = Weights}) -> Weights.
+get_weights(State) ->
+    [get_member_meta(State, Member, weight)
+     || Member <- all_members(State)].
 
 %% ====================================================================
 %% Internal functions
@@ -1325,8 +1324,9 @@ reconcile_next(Next1, Next2) ->
 %%      may have different Idx/Owner pairs. When different, the
 %%      pair associated with BaseNext is chosen. When equal,
 %%      the merge is the same as in reconcile_next/2.
-%% TODO If next is divergent, it means that different nodes were added in a different order. This means the claimant needs to run again?
 reconcile_divergent_next(BaseNext, OtherNext) ->
+    %% TODO If next is divergent, it means that different nodes were added in a
+    %%      different order. This means the claimant needs to run again?
     MergedNext = substitute(1, BaseNext, OtherNext),
     lists:zipwith(fun ({Idx, Owner1, Node1, Transfers1,
                         Status1},
