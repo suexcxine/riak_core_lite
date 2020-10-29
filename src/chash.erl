@@ -56,17 +56,13 @@
 
 -endif.
 
-%% -compile(export_all).
--export([make_size_map/1, make_size_map/2, make_tree/1,
-         query_tree/3]).
-
 %% chash API
--export([contains_name/2, fresh/1, lookup/2,
+-export([contains_name/2, fresh/1, change/2, lookup/2,
          lookup_node_entry/2, key_of/1, index_to_partition_id/2,
          make_handoff_chash/2, members/1, next_index/2, nodes/1,
          node_size/2, offsets/1, partition_id_to_index/2,
          predecessors/2, predecessors/3, ring_increment/1,
-         size/1, successors/2, successors/3, update/3]).
+         size/1, successors/2, successors/3, update/3, diff_list/2]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -97,7 +93,7 @@
                                       chash_node()).
 
 %% A owner_weight_list is a mapping of owner name to their relative weight.
--type owner_weight_list() :: orddict:orddict(chash_node(), pos_integer()).
+-type owner_weight_list() :: orddict:orddict(chash_node(), weight()).
 
 %% Mapping of node to its difference in weight scaled to hash:max_integer()
 -type diff_map() :: [{chash_node(), integer()}].
@@ -180,13 +176,6 @@ make_size_map(OldSizeMap, NewOwnerWeights) ->
                         NewOwnerWeights),
     make_size_map2(OldSizeMap2, DiffMap, NewOwnerWeights).
 
-%% @doc Create a float tree, which is the rapid lookup data structure
-%% for consistent hash queries.
--spec make_tree(size_map()) -> index_tree().
-
-make_tree(Map) ->
-    chash_index_list_to_index_tree(chash_size_map_to_index_list(Map)).
-
 %% @doc Low-level function for querying a size tree: the (integer) point within
 %%      the hash space.
 %% @param Val Hash value to look up.
@@ -219,6 +208,11 @@ contains_name(Name, {IndexList, _}) ->
 fresh(WeightMap) ->
     {chash_size_map_to_index_list(make_size_map(WeightMap)),
      stale}.
+
+-spec change(CHash :: chash(), WeightMap :: owner_weight_list()) -> chash().
+
+change({IndexList, _}, WeightMap) ->
+    {chash_index_list_to_size_map(make_size_map(chash_index_list_to_size_map(IndexList), WeightMap)), stale}.
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
 %% Also Return the chash structure to make use of the lookup structure.
@@ -424,6 +418,16 @@ make_handoff_chash({OriginalIndexList, _},
     {{HandoffOriginalIndexList, stale},
      {HandoffNextIndexList, stale}}.
 
+%% @doc Compute a list of indices that have a different owner in the given chash
+%%      structures. He structures need to have the same indices.
+%% @param OldCHash CHash structure containing the old owners.
+%% @param NewCHash CHash strcutrure containing the new owners.
+%% @returns List of indices, the old owner and new owner.
+-spec diff_list(OldCHash :: chash(), NewCHash :: chash()) -> [{index_as_int(), chash_node(), chash_node()}].
+
+diff_list({OldIndexList, _}, {NewIndexList, _}) ->
+    lists:filter(fun({_, Old, New}) -> Old /= New end, lists:zip_with(fun({Index, OldOwner}, {Index, NewOwner}) -> {Index, OldOwner, NewOwner} end, OldIndexList, NewIndexList)).
+
 %% @doc Compute the index of the partition starting at 0 the key belongs to.
 %% @param Key Key to compute the partition index for.
 %% @param CHash Chash structure to compute the partition index on.
@@ -626,7 +630,6 @@ collapse_unused_in_size_map([]) -> [].
 -spec chash_size_map_to_index_list(SizeMap ::
                                        size_map()) -> index_list().
 
-chash_size_map_to_index_list([]) -> [];
 chash_size_map_to_index_list(SizeMap) ->
     {_Sum, NFs0} = lists:foldl(fun ({Name, Size},
                                     {Sum, List}) ->
@@ -634,6 +637,19 @@ chash_size_map_to_index_list(SizeMap) ->
                                end,
                                {0, []}, SizeMap),
     lists:reverse(NFs0).
+
+%% @private
+%% @doc Convert an index list to a size map. A size map contains a mapping of
+%% owners to the size of the partition they own.
+-spec chash_index_list_to_size_map(IndexList :: index_list()) -> size_map().
+
+chash_index_list_to_size_map([]) -> [];
+chash_index_list_to_size_map([{0, ZeroNode} | IndexList]) ->
+    {SizeMap, LastIndex} = lists:foldl(fun({Index, Name}, {List, PrevIndex}) ->
+        {[{Name, Index - PrevIndex} | List], Index}
+    end, {[], 0}, IndexList),
+    [{ZeroNode, hash:max_integer() - LastIndex} | lists:reverse(SizeMap)].
+
 
 %% @private
 %% @doc Create a search tree from an index list.
@@ -866,5 +882,11 @@ handoff_chash_simple_test() ->
                    stale},
     ?assertEqual(OHC, ExpectedOHC),
     ?assertEqual(NHC, ExpectedNHC).
+
+size_map_to_index_list_inverse_test() ->
+    SizeMap = make_size_map({node0, 100}, {node1, 100}, {node2, 200}, {node3, 300}),
+    SizeMap2 = index_list_to_size_map(size_map_to_index_list(SizeMap)),
+    ?assertEqual(SizeMap, SizeMap2).
+
 
 -endif.

@@ -58,7 +58,7 @@
          reconcile_members/2, is_primary/2, chash/1, set_chash/2,
          future_index/3, future_index/4, is_future_index/4,
          future_owner/2, future_num_partitions/1, vnode_type/2,
-         deletion_complete/3]).
+         deletion_complete/3, get_weights/1]).
 
                                %%         upgrade/1,
                                %%         downgrade/2,
@@ -748,8 +748,9 @@ clear_member_meta(Node, State, Member) ->
 -spec add_member(node(), chstate(),
                  node()) -> chstate().
 
-add_member(PNode, State, Node) ->
-    set_member(PNode, State, Node, joining).
+add_member(PNode, #chstate{weights = Weights} = State, Node) ->
+    State2 = State#chstate{weights = orddict:store(Node, 100, Weights)},
+    set_member(PNode, State2, Node, joining).
 
 %% @doc Mark a member as invalid
 -spec remove_member(node(), chstate(),
@@ -1152,6 +1153,12 @@ pretty_print(Ring, Opts) ->
 
 %% @doc Return a ring with all transfers cancelled - for claim sim
 cancel_transfers(Ring) -> Ring#chstate{next = []}.
+
+%% @doc Get current mapping of node name to its weight.
+%% @param Ring Ring to get the weights from.
+-spec get_weights(Ring :: chstate()) -> chash:owner_weight_list().
+
+get_weights(#chstate{weights = Weights}) -> Weights.
 
 %% ====================================================================
 %% Internal functions

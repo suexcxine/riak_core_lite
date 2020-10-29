@@ -758,6 +758,11 @@ maybe_handle_joining(Node, Joining, CState) ->
 
 %% @private
 update_ring(CNode, CState, Replacing, Seed, Log) ->
+    %% TODO: New update ring algorithm for random slicing:
+    %% 1. Compute NextCHash from claiming members
+    %% 2. Compute handoff chashs
+    %% 3. Compute pending changes for ring and set it
+    %% 4. Set original handoff chash as chash on the ring
     Next0 = riak_core_ring:pending_changes(CState),
     ?ROUT("Members: ~p~n",
           [riak_core_ring:members(CState,
@@ -765,35 +770,31 @@ update_ring(CNode, CState, Replacing, Seed, Log) ->
                                    invalid])]),
     ?ROUT("Updating ring :: next0 : ~p~n", [Next0]),
     %% Remove tuples from next for removed nodes
-    InvalidMembers = riak_core_ring:members(CState,
-                                            [invalid]),
-    Next2 = lists:filter(fun (NInfo) ->
-                                 {Owner, NextOwner, _} =
-                                     riak_core_ring:next_owner(NInfo),
-                                 not lists:member(Owner, InvalidMembers) and
-                                   not lists:member(NextOwner, InvalidMembers)
-                         end,
-                         Next0),
-    CState2 = riak_core_ring:set_pending_changes(CState,
+    ClaimingMembers = riak_core_ring:claiming_members(CState),
+    Weights = [{Node, Weight} || {Node, Weight} <- riak_core_ring:weights(CState), lists:member(Node, ClaimingMembers)],
+    OldCHash = riak_core_ring:chash(CState),
+    NewCHash = chash:change(OldCHash, Weights),
+    {OldHOCHash, NewHOCHash} = chash:make_handoff_chash(OldCHash, NewCHash),
+    DiffList = chash:diff_list(OldHOCHash, NewHOCHash),
+    Next2 = [{Index, Owner, NextOwner, [], awaiting} || {Index, Owner, NextOwner} <- DiffList],
+    CState1 = riak_core_ring:set_chash(CState, OldHOCHash),
+    CState2 = riak_core_ring:set_pending_changes(CState1,
                                                  Next2),
     %% Transfer ownership after completed handoff
     {RingChanged1, CState3} = transfer_ownership(CState2,
                                                  Log),
     ?ROUT("Updating ring :: next1 : ~p~n",
           [riak_core_ring:pending_changes(CState3)]),
-    %% Ressign leaving/inactive indices
+    %% Reassign leaving/inactive indices
     {RingChanged2, CState4} = reassign_indices(CState3,
                                                Replacing, Seed, Log),
     ?ROUT("Updating ring :: next2 : ~p~n",
           [riak_core_ring:pending_changes(CState4)]),
-    %% Rebalance the ring as necessary. If pending changes exist ring
-    %% is not rebalanced
-    Next3 = rebalance_ring(CNode, CState4),
     Log(debug,
         {"Pending ownership transfers: ~b~n",
          [length(riak_core_ring:pending_changes(CState4))]}),
     %% Remove transfers to/from down nodes
-    Next4 = handle_down_nodes(CState4, Next3),
+    Next4 = handle_down_nodes(CState4, Next2),
     NextChanged = Next0 /= Next4,
     Changed = NextChanged or RingChanged1 or RingChanged2,
     case Changed of
@@ -821,7 +822,7 @@ transfer_ownership(CState, Log) ->
                                  {_, NewOwner, S} =
                                      riak_core_ring:next_owner(NInfo),
                                  not
-                                   ((S == complete) and
+                                   ((S == complete) andalso
                                       (riak_core_ring:index_owner(CState, Idx)
                                          =:= NewOwner))
                          end,
@@ -870,22 +871,6 @@ reassign_indices(CState, Replacing, Seed, Log) ->
     NextChanged = Next /=
                     riak_core_ring:pending_changes(CState3),
     {RingChanged or NextChanged, CState3}.
-
-%% @private
-rebalance_ring(CNode, CState) ->
-    Next = riak_core_ring:pending_changes(CState),
-    rebalance_ring(CNode, Next, CState).
-
-rebalance_ring(_CNode, [], CState) ->
-    CState2 = riak_core_claim:claim(CState),
-    Owners1 = riak_core_ring:all_owners(CState),
-    Owners2 = riak_core_ring:all_owners(CState2),
-    Owners3 = lists:zip(Owners1, Owners2),
-    Next = [{Idx, PrevOwner, NewOwner, [], awaiting}
-            || {{Idx, PrevOwner}, {Idx, NewOwner}} <- Owners3,
-               PrevOwner /= NewOwner],
-    Next;
-rebalance_ring(_CNode, Next, _CState) -> Next.
 
 %% @private
 handle_down_nodes(CState, Next) ->
