@@ -1273,8 +1273,9 @@ reconcile_divergent(VNode, StateA, StateB) ->
     Meta = merge_meta({StateA#chstate.nodename,
                        StateA#chstate.meta},
                       {StateB#chstate.nodename, StateB#chstate.meta}),
-    NewState = reconcile_ring(StateA, StateB,
-                              get_members(Members)),
+    NewState = reconcile_ring(StateA#chstate{members =
+                                                 Members,
+                                             meta = Meta}),
     NewState1 = NewState#chstate{vclock = VClock,
                                  members = Members, meta = Meta},
     log_ring_result(NewState1),
@@ -1312,111 +1313,21 @@ reconcile_seen(StateA, StateB) ->
                   StateA#chstate.seen, StateB#chstate.seen).
 
 %% @private
-merge_next_status(complete, _) -> complete;
-merge_next_status(_, complete) -> complete;
-merge_next_status(awaiting, awaiting) -> awaiting.
-
-%% @private
-%% @doc Merge two next lists that must be of the same size and have
-%%      the same Idx/Owner pair.
-reconcile_next(Next1, Next2) ->
-    lists:zipwith(fun ({Idx, Owner, Node, Transfers1,
-                        Status1},
-                       {Idx, Owner, Node, Transfers2, Status2}) ->
-                          {Idx, Owner, Node,
-                           ordsets:union(Transfers1, Transfers2),
-                           merge_next_status(Status1, Status2)}
-                  end,
-                  Next1, Next2).
-
-%% @private
-%% @doc Merge two next lists that may be of different sizes and
-%%      may have different Idx/Owner pairs. When different, the
-%%      pair associated with BaseNext is chosen. When equal,
-%%      the merge is the same as in reconcile_next/2.
-reconcile_divergent_next(BaseNext, OtherNext) ->
-    %% TODO If next is divergent, it means that different nodes were added in a
-    %%      different order. This means the claimant needs to run again?
-    MergedNext = substitute(1, BaseNext, OtherNext),
-    lists:zipwith(fun ({Idx, Owner1, Node1, Transfers1,
-                        Status1},
-                       {Idx, Owner2, Node2, Transfers2, Status2}) ->
-                          Same = {Owner1, Node1} =:= {Owner2, Node2},
-                          case {Same, Status1, Status2} of
-                            {false, _, _} ->
-                                {Idx, Owner1, Node1, Transfers1, Status1};
-                            _ ->
-                                {Idx, Owner1, Node1,
-                                 ordsets:union(Transfers1, Transfers2),
-                                 merge_next_status(Status1, Status2)}
-                          end
-                  end,
-                  BaseNext, MergedNext).
-
-%% @private
-substitute(Idx, TL1, TL2) ->
-    lists:map(fun (T) ->
-                      Key = element(Idx, T),
-                      case lists:keyfind(Key, Idx, TL2) of
-                        false -> T;
-                        T2 -> T2
-                      end
-              end,
-              TL1).
-
-%% @private
-reconcile_ring(StateA = #chstate{claimant = Claimant1,
-                                 rvsn = VC1, next = Next1},
-               StateB = #chstate{claimant = Claimant2, rvsn = VC2,
-                                 next = Next2},
-               Members) ->
-    %% Try to reconcile based on the ring version (rvsn) vector clock.
-    V1Newer = vclock:descends(VC1, VC2),
-    V2Newer = vclock:descends(VC2, VC1),
-    EqualVC = vclock:equal(VC1, VC2) and
-                (Claimant1 =:= Claimant2),
-    case {EqualVC, V1Newer, V2Newer} of
-      {true, _, _} ->
-          Next = reconcile_next(Next1, Next2),
-          StateA#chstate{next = Next};
-      {_, true, false} ->
-          Next = reconcile_divergent_next(Next1, Next2),
-          StateA#chstate{next = Next};
-      {_, false, true} ->
-          Next = reconcile_divergent_next(Next2, Next1),
-          StateB#chstate{next = Next};
-      {_, _, _} ->
-          %% Ring versions were divergent, so fall back to reconciling based
-          %% on claimant. Under normal operation, divergent ring versions
-          %% should only occur if there are two different claimants, and one
-          %% claimant is invalid. For example, when a claimant is removed and
-          %% a new claimant has just taken over. We therefore chose the ring
-          %% with the valid claimant.
-          CValid1 = lists:member(Claimant1, Members),
-          CValid2 = lists:member(Claimant2, Members),
-          case {CValid1, CValid2} of
-            {true, false} ->
-                Next = reconcile_divergent_next(Next1, Next2),
-                StateA#chstate{next = Next};
-            {false, true} ->
-                Next = reconcile_divergent_next(Next2, Next1),
-                StateB#chstate{next = Next};
-            {_, _} ->
-                %% This can occur when removed/down nodes are still
-                %% up and gossip to each other. We need to pick a
-                %% claimant to handle this case, although the choice
-                %% is irrelevant as a correct valid claimant will
-                %% eventually emerge when the ring converges.
-                case Claimant1 < Claimant2 of
-                  true ->
-                      Next = reconcile_divergent_next(Next1, Next2),
-                      StateA#chstate{next = Next};
-                  false ->
-                      Next = reconcile_divergent_next(Next2, Next1),
-                      StateB#chstate{next = Next}
-                end
-          end
-    end.
+reconcile_ring(StateA) ->
+    ClaimingMembers = claiming_members(StateA),
+    %% Same as in claimant:update_ring, maybe export as function?
+    Weights = [{Node, Weight}
+               || {Node, Weight} <- riak_core_ring:get_weights(StateA),
+                  lists:member(Node, ClaimingMembers)],
+    OldCHash = riak_core_ring:chash(StateA),
+    NewCHash = chash:change(OldCHash, Weights),
+    {OldHOCHash, NewHOCHash} =
+        chash:make_handoff_chash(OldCHash, NewCHash),
+    DiffList = chash:diff_list(OldHOCHash, NewHOCHash),
+    Next2 = lists:ukeysort(1,
+                           [{Index, Owner, NextOwner, [], awaiting}
+                            || {Index, Owner, NextOwner} <- DiffList]),
+    StateA#chstate{next = Next2, chring = OldHOCHash}.
 
 %% @private
 merge_status(invalid, _) -> invalid;
@@ -1537,7 +1448,7 @@ filtered_seen(State = #chstate{seen = Seen}) ->
 sequence_test() ->
     I1 = 365375409332725729550921208179070754913983135744,
     I2 = 730750818665451459101842416358141509827966271488,
-    A = fresh(4, a),
+    A = fresh(a),
     B1 = A#chstate{nodename = b},
     B2 = transfer_node(I1, b, B1),
     ?assertEqual(B2, (transfer_node(I1, b, B2))),
@@ -1555,11 +1466,11 @@ sequence_test() ->
 
 param_fresh_test() ->
     application:set_env(riak_core, ring_creation_size, 4),
-    ?assert((equal_cstate(fresh(), fresh(4, node())))),
+    ?assert((equal_cstate(fresh(), fresh(node())))),
     ?assertEqual((owner_node(fresh())), (node())).
 
 index_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     Ring1 = transfer_node(0, x, Ring0),
     ?assertEqual(0, (random_other_index(Ring0))),
     ?assertEqual(0, (random_other_index(Ring1))),
@@ -1569,13 +1480,13 @@ index_test() ->
                  (lists:sort(diff_nodes(Ring0, Ring1)))).
 
 reconcile_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     Ring1 = transfer_node(0, x, Ring0),
     %% Only members and seen should have changed
-    {new_ring, Ring2} = reconcile(fresh(2, someone_else),
+    {new_ring, Ring2} = reconcile(fresh(someone_else),
                                   Ring1),
     ?assertNot((equal_cstate(Ring1, Ring2, false))),
-    RingB0 = fresh(2, node()),
+    RingB0 = fresh(node()),
     RingB1 = transfer_node(0, x, RingB0),
     RingB2 = RingB1#chstate{nodename = b},
     ?assertMatch({no_change, _},
@@ -1584,7 +1495,7 @@ reconcile_test() ->
     ?assert((equal_cstate(RingB2, RingB3))).
 
 metadata_inequality_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     Ring1 = update_meta(key, val, Ring0),
     ?assertNot((equal_rings(Ring0, Ring1))),
     ?assertEqual((Ring1#chstate.meta),
@@ -1606,7 +1517,7 @@ metadata_inequality_test() ->
                                                     Ring1#chstate.meta})}))).
 
 metadata_remove_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     ?assert((equal_rings(Ring0, remove_meta(key, Ring0)))),
     Ring1 = update_meta(key, val, Ring0),
     timer:sleep(1001), % ensure that lastmod is at least one second later
@@ -1626,13 +1537,13 @@ metadata_remove_test() ->
                                                     Ring1#chstate.meta})}))).
 
 rename_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     Ring = rename_node(Ring0, node(), new@new),
     ?assertEqual(new@new, (owner_node(Ring))),
     ?assertEqual([new@new], (all_members(Ring))).
 
 exclusion_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     Ring1 = transfer_node(0, x, Ring0),
     ?assertEqual(0,
                  (random_other_index(Ring1,
@@ -1645,7 +1556,7 @@ exclusion_test() ->
                  (preflist(hash:as_binary(1), Ring1))).
 
 random_other_node_test() ->
-    Ring0 = fresh(2, node()),
+    Ring0 = fresh(node()),
     ?assertEqual(no_node, (random_other_node(Ring0))),
     Ring1 = add_member(node(), Ring0, new@new),
     Ring2 = transfer_node(0, new@new, Ring1),
@@ -1749,29 +1660,5 @@ ring_version_test() ->
                             RingB4#chstate{rvsn =
                                                vclock:increment(nodeB, RVsn)}),
     ?assertEqual(nodeB, (index_owner(RingT5, 0))).
-
-reconcile_next_test() ->
-    Next1 = [{0, nodeA, nodeB, [riak_pipe_vnode], awaiting},
-             {1, nodeA, nodeB, [riak_pipe_vnode], awaiting},
-             {2, nodeA, nodeB, [riak_pipe_vnode], complete}],
-    Next2 = [{0, nodeA, nodeB, [riak_kv_vnode], complete},
-             {1, nodeA, nodeB, [], awaiting},
-             {2, nodeA, nodeB, [], awaiting}],
-    Next3 = [{0, nodeA, nodeB,
-              [riak_kv_vnode, riak_pipe_vnode], complete},
-             {1, nodeA, nodeB, [riak_pipe_vnode], awaiting},
-             {2, nodeA, nodeB, [riak_pipe_vnode], complete}],
-    ?assertEqual(Next3, (reconcile_next(Next1, Next2))),
-    Next4 = [{0, nodeA, nodeB, [riak_pipe_vnode], awaiting},
-             {1, nodeA, nodeB, [], awaiting},
-             {2, nodeA, nodeB, [riak_pipe_vnode], awaiting}],
-    Next5 = [{0, nodeA, nodeC, [riak_kv_vnode], complete},
-             {2, nodeA, nodeB, [riak_kv_vnode], complete}],
-    Next6 = [{0, nodeA, nodeB, [riak_pipe_vnode], awaiting},
-             {1, nodeA, nodeB, [], awaiting},
-             {2, nodeA, nodeB, [riak_kv_vnode, riak_pipe_vnode],
-              complete}],
-    ?assertEqual(Next6,
-                 (reconcile_divergent_next(Next4, Next5))).
 
 -endif.
