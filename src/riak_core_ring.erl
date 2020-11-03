@@ -58,7 +58,7 @@
          reconcile_members/2, is_primary/2, chash/1, set_chash/2,
          future_index/3, future_index/4, is_future_index/4,
          future_owner/2, future_num_partitions/1, vnode_type/2,
-         deletion_complete/3, get_weights/1]).
+         deletion_complete/3, get_weight/2, get_weights/1]).
 
                                %%         upgrade/1,
                                %%         downgrade/2,
@@ -1150,13 +1150,23 @@ pretty_print(Ring, Opts) ->
 %% @doc Return a ring with all transfers cancelled - for claim sim
 cancel_transfers(Ring) -> Ring#chstate{next = []}.
 
+%% @doc Get the weight associated with the given member.
+%% @param Member Name of the member.
+%% @param State Ring the node is a member of.
+%% @returns The member's wieght or undefined.
+-spec get_weight(Member :: term(),
+                 State :: chstate()) -> pos_integer() | undefined.
+
+get_weight(Member, State) ->
+    get_member_meta(State, Member, weight).
+
 %% @doc Get current mapping of node name to its weight.
 %% @param Ring Ring to get the weights from.
 -spec get_weights(Ring ::
                       chstate()) -> chash:owner_weight_list().
 
 get_weights(State) ->
-    [get_member_meta(State, Member, weight)
+    [{Member, get_weight(Member, State)}
      || Member <- all_members(State)].
 
 %% ====================================================================

@@ -261,10 +261,9 @@ maybe_commit_staged(State) ->
 
 %% @private
 maybe_commit_staged(Ring,
-                    State = #state{changes = Changes, seed = Seed}) ->
+                    State = #state{changes = Changes}) ->
     Changes2 = filter_changes(Changes, Ring),
-    {ok, NextRing} = compute_next_ring(Changes2, Seed,
-                                       Ring),
+    {ok, NextRing} = compute_next_ring(Changes2, Ring),
     maybe_commit_staged(Ring, NextRing, State).
 
 %% @private
@@ -370,13 +369,16 @@ valid_replace_request(Node, NewNode, Changes, Ring) ->
                                                NewNode)
                     == joining)
                    and not orddict:is_key(NewNode, Changes),
+    SameWeight = riak_core_ring:get_weight(Node, Ring) ==
+                   riak_core_ring:get_weight(NewNode, Ring),
     case {riak_core_ring:member_status(Ring, Node),
-          AlreadyReplacement, NewJoining}
+          AlreadyReplacement, NewJoining, SameWeight}
         of
-      {invalid, _, _} -> {error, not_member};
-      {leaving, _, _} -> {error, already_leaving};
-      {_, true, _} -> {error, already_replacement};
-      {_, _, false} -> {error, invalid_replacement};
+      {invalid, _, _, _} -> {error, not_member};
+      {leaving, _, _, _} -> {error, already_leaving};
+      {_, true, _, _} -> {error, already_replacement};
+      {_, _, false, _} -> {error, invalid_replacement};
+      {_, _, _, false} -> {error, different_weight};
       _ -> true
     end.
 
@@ -390,14 +392,17 @@ valid_force_replace_request(Node, NewNode, Changes,
                                                NewNode)
                     == joining)
                    and not orddict:is_key(NewNode, Changes),
+    SameWeight = riak_core_ring:get_weight(Node, Ring) ==
+                   riak_core_ring:get_weight(NewNode, Ring),
     case {IsClaimant,
           riak_core_ring:member_status(Ring, Node),
-          AlreadyReplacement, NewJoining}
+          AlreadyReplacement, NewJoining, SameWeight}
         of
-      {true, _, _, _} -> {error, is_claimant};
-      {_, invalid, _, _} -> {error, not_member};
-      {_, _, true, _} -> {error, already_replacement};
-      {_, _, _, false} -> {error, invalid_replacement};
+      {true, _, _, _, _} -> {error, is_claimant};
+      {_, invalid, _, _, _} -> {error, not_member};
+      {_, _, true, _, _} -> {error, already_replacement};
+      {_, _, _, false, _} -> {error, invalid_replacement};
+      {_, _, _, _, false} -> {error, different_weight};
       _ -> true
     end.
 
@@ -472,8 +477,7 @@ maybe_force_ring_update(Ring) ->
     end.
 
 do_maybe_force_ring_update(Ring) ->
-    {ok, NextRing} = compute_next_ring([],
-                                       erlang:timestamp(), Ring),
+    {ok, NextRing} = compute_next_ring([], Ring),
     case same_plan(Ring, NextRing) of
       false ->
           logger:warning("Forcing update of stalled ring"),
@@ -491,7 +495,7 @@ compute_all_next_rings(Changes, Seed, Ring) ->
 
 %% @private
 compute_all_next_rings(Changes, Seed, Ring, Acc) ->
-    {ok, NextRing} = compute_next_ring(Changes, Seed, Ring),
+    {ok, NextRing} = compute_next_ring(Changes, Ring),
     Acc2 = [{Ring, NextRing} | Acc],
     case not same_plan(Ring, NextRing) of
       true ->
@@ -501,13 +505,10 @@ compute_all_next_rings(Changes, Seed, Ring, Acc) ->
     end.
 
 %% @private
-compute_next_ring(Changes, Seed, Ring) ->
-    Replacing = [{Node, NewNode}
-                 || {Node, {replace, NewNode}} <- Changes],
+compute_next_ring(Changes, Ring) ->
     Ring2 = apply_changes(Ring, Changes),
     {_, Ring3} = maybe_handle_joining(node(), Ring2),
-    {_, Ring4} = do_claimant_quiet(node(), Ring3, Replacing,
-                                   Seed),
+    {_, Ring4} = do_claimant_quiet(node(), Ring3),
     {ok, Ring4}.
 
 %% @private
@@ -626,14 +627,10 @@ inform_removed_nodes(Node, OldRing, NewRing) ->
          || ExitingNode <- Changed],
     ok.
 
-do_claimant_quiet(Node, CState, Replacing, Seed) ->
-    do_claimant(Node, CState, Replacing, Seed,
-                fun no_log/2).
+do_claimant_quiet(Node, CState) ->
+    do_claimant(Node, CState, fun no_log/2).
 
 do_claimant(Node, CState, Log) ->
-    do_claimant(Node, CState, [], erlang:timestamp(), Log).
-
-do_claimant(Node, CState, Replacing, Seed, Log) ->
     AreJoining = are_joining_nodes(CState),
     {C1, CState2} = maybe_update_claimant(Node, CState),
     {C2, CState3} = maybe_handle_auto_joining(Node,
@@ -644,8 +641,7 @@ do_claimant(Node, CState, Replacing, Seed, Log) ->
           Changed = C1 or C2,
           CState5 = CState3;
       false ->
-          {C3, CState4} = maybe_update_ring(Node, CState3,
-                                            Replacing, Seed, Log),
+          {C3, CState4} = maybe_update_ring(Node, CState3, Log),
           {C4, CState5} = maybe_remove_exiting(Node, CState4),
           Changed = C1 or C2 or C3 or C4
     end,
@@ -670,7 +666,7 @@ maybe_update_claimant(Node, CState) ->
     end.
 
 %% @private
-maybe_update_ring(Node, CState, Replacing, Seed, Log) ->
+maybe_update_ring(Node, CState, Log) ->
     Claimant = riak_core_ring:claimant(CState),
     case Claimant of
       Node ->
@@ -682,9 +678,19 @@ maybe_update_ring(Node, CState, Replacing, Seed, Log) ->
                 %% active nodes.
                 {false, CState};
             _ ->
-                {Changed, CState2} = update_ring(Node, CState,
-                                                 Replacing, Seed, Log),
-                {Changed, CState2}
+                %% If there are pending changes not handed off, do not update
+                %% the ring.
+                Next1 = [Change
+                         || Change = {_, _, _, _, awaiting}
+                                <- riak_core_ring:pending_changes(CState)],
+                case Next1 /= [] of
+                  true ->
+                      %% Transfer ownership after completed handoff
+                      transfer_ownership(CState, Log);
+                  _ ->
+                      {Changed, CState2} = update_ring(Node, CState, Log),
+                      {Changed, CState2}
+                end
           end;
       _ -> {false, CState}
     end.
@@ -699,6 +705,9 @@ maybe_remove_exiting(Node, CState) ->
                       [Node],
           Changed = Exiting /= [],
           CState2 = lists:foldl(fun (ENode, CState0) ->
+                                        %% Manual removal instead of
+                                        %% 'riak_core_ring:remove_member'
+                                        %% because of vector clock.
                                         ClearedCS =
                                             riak_core_ring:clear_member_meta(Node,
                                                                              CState0,
@@ -757,13 +766,15 @@ maybe_handle_joining(Node, Joining, CState) ->
     end.
 
 %% @private
-update_ring(CNode, CState, Replacing, Seed, Log) ->
-    %% TODO: New update ring algorithm for random slicing:
+update_ring(CNode, CState, Log) ->
+    %% New update ring algorithm for random slicing:
     %% 1. Compute NextCHash from claiming members
     %% 2. Compute handoff chashs
     %% 3. Compute pending changes for ring and set it
     %% 4. Set original handoff chash as chash on the ring
-    Next0 = riak_core_ring:pending_changes(CState),
+    %% With this leaving, exiting, and invalid nodes are automatically removed
+    %% from the ring.
+    %% Replacing is also handled by random slicing.
     ?ROUT("Members: ~p~n",
           [riak_core_ring:members(CState,
                                   [joining, valid, leaving, exiting,
@@ -780,8 +791,9 @@ update_ring(CNode, CState, Replacing, Seed, Log) ->
     {OldHOCHash, NewHOCHash} =
         chash:make_handoff_chash(OldCHash, NewCHash),
     DiffList = chash:diff_list(OldHOCHash, NewHOCHash),
-    Next2 = [{Index, Owner, NextOwner, [], awaiting}
-             || {Index, Owner, NextOwner} <- DiffList],
+    Next2 = lists:ukeysort(1,
+                           [{Index, Owner, NextOwner, [], awaiting}
+                            || {Index, Owner, NextOwner} <- DiffList]),
     CState1 = riak_core_ring:set_chash(CState, OldHOCHash),
     CState2 = riak_core_ring:set_pending_changes(CState1,
                                                  Next2),
@@ -790,28 +802,22 @@ update_ring(CNode, CState, Replacing, Seed, Log) ->
                                                  Log),
     ?ROUT("Updating ring :: next1 : ~p~n",
           [riak_core_ring:pending_changes(CState3)]),
-    %% Reassign leaving/inactive indices
-    {RingChanged2, CState4} = reassign_indices(CState3,
-                                               Replacing, Seed, Log),
     ?ROUT("Updating ring :: next2 : ~p~n",
           [riak_core_ring:pending_changes(CState4)]),
     Log(debug,
         {"Pending ownership transfers: ~b~n",
-         [length(riak_core_ring:pending_changes(CState4))]}),
+         [length(riak_core_ring:pending_changes(CState3))]}),
     %% Remove transfers to/from down nodes
-    Next4 = handle_down_nodes(CState4, Next2),
-    NextChanged = Next0 /= Next4,
-    Changed = NextChanged or RingChanged1 or RingChanged2,
+    Next4 = handle_down_nodes(CState3, Next2),
+    Changed = RingChanged1,
     case Changed of
       true ->
-          OldS = ordsets:from_list([{Idx, O, NO}
-                                    || {Idx, O, NO, _, _} <- Next0]),
           NewS = ordsets:from_list([{Idx, O, NO}
                                     || {Idx, O, NO, _, _} <- Next4]),
-          Diff = ordsets:subtract(NewS, OldS),
+          Diff = NewS,
           _ = [Log(next, NChange) || NChange <- Diff],
           ?ROUT("Updating ring :: next3 : ~p~n", [Next4]),
-          CState5 = riak_core_ring:set_pending_changes(CState4,
+          CState5 = riak_core_ring:set_pending_changes(CState3,
                                                        Next4),
           CState6 = riak_core_ring:increment_ring_version(CNode,
                                                           CState5),
@@ -878,6 +884,7 @@ reassign_indices(CState, Replacing, Seed, Log) ->
     {RingChanged or NextChanged, CState3}.
 
 %% @private
+%% TODO Better solution for load balancing than random replacement?
 handle_down_nodes(CState, Next) ->
     LeavingMembers = riak_core_ring:members(CState,
                                             [leaving, invalid]),
