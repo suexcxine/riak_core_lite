@@ -216,7 +216,7 @@ fresh(WeightMap) ->
              WeightMap :: owner_weight_list()) -> chash().
 
 change({IndexList, _}, WeightMap) ->
-    {chash_index_list_to_size_map(make_size_map(chash_index_list_to_size_map(IndexList),
+    {chash_size_map_to_index_list(make_size_map(chash_index_list_to_size_map(IndexList),
                                                 WeightMap)),
      stale}.
 
@@ -647,10 +647,13 @@ collapse_unused_in_size_map([]) -> [].
 chash_size_map_to_index_list(SizeMap) ->
     {_Sum, NFs0} = lists:foldl(fun ({Name, Size},
                                     {Sum, List}) ->
-                                       {Sum + Size, [{Sum, Name} | List]}
+                                       {Sum + Size,
+                                        [{(Sum + Size) rem hash:max_integer(),
+                                          Name}
+                                         | List]}
                                end,
                                {0, []}, SizeMap),
-    lists:reverse(NFs0).
+    lists:ukeysort(1, NFs0).
 
 %% @private
 %% @doc Convert an index list to a size map. A size map contains a mapping of
@@ -668,8 +671,9 @@ chash_index_list_to_size_map([{0, ZeroNode}
                                                 Index}
                                        end,
                                        {[], 0}, IndexList),
-    [{ZeroNode, hash:max_integer() - LastIndex}
-     | lists:reverse(SizeMap)].
+    lists:reverse([{ZeroNode,
+                    hash:max_integer() - LastIndex}
+                   | SizeMap]).
 
 %% @private
 %% @doc Create a search tree from an index list.
@@ -805,7 +809,7 @@ make_handoff_index_lists([{OI, ON} | OR],
     end.
 
 %% @private
-%% @doc Helper for {@linkk key_to_partition_id/2}.
+%% @doc Helper for {@link key_to_partition_id/2}.
 %% @param Key Integer key.
 %% @param IndexList List of Indices without an entry for `0'.
 %% @returns Index of the partition the key belongs to.
