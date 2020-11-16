@@ -399,6 +399,12 @@ monitor(ignore) -> erlang:monitor(process, self()).
 init([Module, Index, InitialInactivityTimeout,
       Forward]) ->
     process_flag(trap_exit, true),
+    case partisan_config:get(vnode_partitioning, false) of
+        true ->
+            put(index, Index);
+        false ->
+            ok
+    end,
     State = #state{index = Index, mod = Module,
                    forward = Forward,
                    inactivity_timeout = InitialInactivityTimeout},

@@ -2,7 +2,7 @@
     [{description, "Riak Core Lite"},
      {vsn,"0.10.1"},
      {applications,
-         [kernel, stdlib, crypto, os_mon, poolboy]
+         [kernel, stdlib, crypto, os_mon, poolboy, partisan]
      },
      {mod, {riak_core_app, []}},
      {env,

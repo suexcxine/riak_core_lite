@@ -96,6 +96,8 @@ get_other_ring(Node) ->
 standard_join(Node, Rejoin, Auto) when is_atom(Node) ->
     case net_adm:ping(Node) of
       pong ->
+          %% Initiate the partisan connections.
+          riak_core_partisan_utils:join(Node),
           case get_other_ring(Node) of
             {ok, Ring} -> standard_join(Node, Ring, Rejoin, Auto);
             _ -> {error, unable_to_get_join_ring}
@@ -116,13 +118,15 @@ standard_join(Node, Ring, Rejoin, Auto) ->
     InitComplete = init_complete(init:get_status()),
     SameSize = riak_core_ring:num_partitions(MyRing) =:=
                  riak_core_ring:num_partitions(Ring),
-    Singleton = [node()] =:=
-                  riak_core_ring:all_members(MyRing),
+    RemoteMembers = riak_core_ring:all_members(MyRing),
+    Singleton = ([node()] =:= RemoteMembers),
     case {InitComplete, Rejoin or Singleton, SameSize} of
       {false, _, _} -> {error, node_still_starting};
       {_, false, _} -> {error, not_single_node};
       {_, _, false} -> {error, different_ring_sizes};
       _ ->
+          %% Connect all incoming members via partisan.
+          riak_core_partisan_utils:join(RemoteMembers),
           Ring2 = riak_core_ring:add_member(node(), Ring, node()),
           Ring3 = riak_core_ring:set_owner(Ring2, node()),
           Ring4 = riak_core_ring:update_member_meta(node(), Ring3,
@@ -201,6 +205,10 @@ leave() ->
     end.
 
 standard_leave(Node) ->
+    %% Force leave from partisan
+    riak_core_partisan_utils:leave(Node),
+
+    %% Perform ring transition
     riak_core_ring_manager:ring_trans(fun (Ring2, _) ->
                                               Ring3 =
                                                   riak_core_ring:leave_member(Node,

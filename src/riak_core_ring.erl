@@ -35,7 +35,7 @@
          random_node/1, random_other_index/1,
          random_other_index/2, random_other_node/1, reconcile/2,
          rename_node/3, responsible_index/2, transfer_node/3,
-         update_meta/3, remove_meta/2]).
+         update_meta/3, remove_meta/2, notify_external_membership/1]).
 
 -export([cluster_name/1, set_tainted/1, check_tainted/2,
          nearly_equal/2, claimant/1, member_status/2,
@@ -688,17 +688,20 @@ update_member_meta(Node, State, Member, Key, Val) ->
 update_member_meta(Node, State, Member, Key, Val,
                    same_vclock) ->
     Members = State#chstate.members,
-    case orddict:is_key(Member, Members) of
+    Members2 = case orddict:is_key(Member, Members) of
       true ->
-          Members2 = orddict:update(Member,
-                                    fun ({Status, VC, MD}) ->
-                                            {Status, vclock:increment(Node, VC),
-                                             orddict:store(Key, Val, MD)}
-                                    end,
-                                    Members),
-          State#chstate{members = Members2};
-      false -> State
-    end.
+          orddict:update(Member,
+                           fun({Status, VC, MD}) ->
+                                {Status,
+                                 vclock:increment(Node, VC),
+                                 orddict:store(Key, Val, MD)}
+                           end,
+                           Members);
+      false -> Members
+    end,
+    notify_external_membership(State#chstate{members=Members2}),
+
+    State#chstate{members=Members2}.
 
 clear_member_meta(Node, State, Member) ->
     Members = State#chstate.members,
@@ -744,6 +747,7 @@ set_member(Node, CState, Member, Status, same_vclock) ->
                               {Status, vclock:increment(Node, vclock:fresh()),
                                []},
                               CState#chstate.members),
+    notify_external_membership(CState#chstate{members=Members2}),
     CState#chstate{members = Members2}.
 
 %% @doc Return a list of all members of the cluster that are eligible to
@@ -1594,7 +1598,7 @@ reconcile_ring(StateA = #chstate{claimant = Claimant1,
     V2Newer = vclock:descends(VC2, VC1),
     EqualVC = vclock:equal(VC1, VC2) and
                 (Claimant1 =:= Claimant2),
-    case {EqualVC, V1Newer, V2Newer} of
+    New = case {EqualVC, V1Newer, V2Newer} of
       {true, _, _} ->
           Next = reconcile_next(Next1, Next2),
           StateA#chstate{next = Next};
@@ -1647,7 +1651,9 @@ reconcile_ring(StateA = #chstate{claimant = Claimant1,
                       StateB#chstate{next = Next}
                 end
           end
-    end.
+    end,
+    notify_external_membership(New),
+    New.
 
 %% @private
 merge_status(invalid, _) -> invalid;
@@ -1759,6 +1765,23 @@ filtered_seen(State = #chstate{seen = Seen}) ->
                          end,
                          Seen)
     end.
+
+notify_external_membership(_State=#chstate{members=Members}) ->
+    %% Update membership in partisan.
+    Valid = orddict:fold(fun(N, {S, _VC, _MD}, Acc) ->
+                                        case S of
+                                            valid ->
+                                                Acc ++ [N];
+                                            joining ->
+                                                Acc ++ [N];
+                                            _ ->
+                                                Acc
+                                        end
+                        end, [], Members),
+
+    ok = riak_core_partisan_utils:update(Valid),
+
+    ok.
 
 %% ===================================================================
 %% EUnit tests

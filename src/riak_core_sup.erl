@@ -52,6 +52,7 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
+    riak_core_partisan_utils:configure_dispatch(),
     Children = lists:flatten([?CHILD(riak_core_vnode_sup,
                                      supervisor, 305000),
                               ?CHILD(riak_core_eventhandler_sup, supervisor),
@@ -63,5 +64,6 @@ init([]) ->
                               ?CHILD(riak_core_node_watcher, worker),
                               ?CHILD(riak_core_vnode_manager, worker),
                               ?CHILD(riak_core_gossip, worker),
-                              ?CHILD(riak_core_claimant, worker)]),
+                              ?CHILD(riak_core_claimant, worker),
+                              ?CHILD(riak_core_partisan_proxy_service, worker)]),
     {ok, {{one_for_one, 10, 10}, Children}}.

@@ -762,7 +762,7 @@ update_handoff(AllVNodes, Ring, CHBin, State) ->
 
 should_handoff(Ring, _CHBin, Mod, Idx) ->
     {_, NextOwner, _} = riak_core_ring:next_owner(Ring,
-                                                  Idx),
+                                                  Idx, Mod),
     Type = riak_core_ring:vnode_type(Ring, Idx),
     Ready = riak_core_ring:ring_ready(Ring),
     IsResizing = riak_core_ring:is_resizing(Ring),

@@ -545,12 +545,14 @@ chbin_test_() ->
     {timeout, 180, fun chbin_test_scenario/0}.
 
 chbin_test_scenario() ->
+    meck:new(riak_core_partisan_utils, [unstick]),
     [chbin_test_scenario(Size, NumNodes)
      || Size <- [32, 64, 128],
         NumNodes <- [1, 2, 3, 4, 5, 8, Size div 4]],
     ok.
 
 chbin_test_scenario(Size, NumNodes) ->
+    meck:expect(riak_core_partisan_utils, update, fun(_) -> ok end),
     RingTop = 1 bsl 160,
     Ring = riak_core_test_util:fake_ring(Size, NumNodes),
     Nodes = riak_core_ring:all_members(Ring),

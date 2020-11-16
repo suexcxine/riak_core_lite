@@ -68,7 +68,7 @@
          prune_ringfiles/0, read_ringfile/1,
          find_latest_ringfile/0, force_update/0,
          do_write_ringfile/1, ring_trans/2, set_cluster_name/1,
-         is_stable_ring/0]).
+         is_stable_ring/0, bloat_ring/0]).
 
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
@@ -109,6 +109,19 @@ start_link() ->
 start_link(test) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [test],
                           []).
+
+bloat_ring() ->
+        Fun = fun(Ring, _Args) ->
+            logger:warning("Bloating ring beginning!"),
+            Key = '$bloat',
+            Value = list_to_binary(lists:flatten(lists:map(fun(X) -> integer_to_list(X) end, lists:seq(1, 1000000)))),
+            Ring = lists:foldl(fun(X, AccRing) ->
+                    riak_core_ring:update_meta({Key, X}, Value, AccRing)
+                end, Ring, lists:seq(1, 100)),
+            {new_ring, Ring}
+        end,
+        gen_server:call(?MODULE, {ring_trans, Fun, []}, infinity).
+
 
 -spec get_my_ring() -> {ok,
                         riak_core_ring:riak_core_ring()} |
@@ -227,6 +240,8 @@ do_write_ringfile(Ring, FN) ->
 %% @spec find_latest_ringfile() -> string()
 find_latest_ringfile() ->
     Dir = ring_dir(),
+    %% Append 'ring', because ensure_dir only checks parent directories.
+    ok = filelib:ensure_dir(Dir ++ "/ring"),
     case file:list_dir(Dir) of
       {ok, Filenames} ->
           {ok, Cluster} = application:get_env(riak_core,
