@@ -22,8 +22,6 @@
 
 -module(riak_core_handoff_sender).
 
-%% documentation status: done
-
 -export([start_link/4]).
 
 -include("riak_core_vnode.hrl").

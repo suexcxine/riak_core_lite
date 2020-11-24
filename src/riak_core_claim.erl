@@ -49,8 +49,6 @@
 
 -module(riak_core_claim).
 
-%% documentation status: done
-
 -type ring() :: riak_core_ring:riak_core_ring().
 
 -export([claim/1, claim/3, claim_until_balanced/2,

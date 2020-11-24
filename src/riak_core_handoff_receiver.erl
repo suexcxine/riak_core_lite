@@ -22,8 +22,6 @@
 
 -module(riak_core_handoff_receiver).
 
-%% documentation status: done
-
 -include("riak_core_handoff.hrl").
 
 -behaviour(gen_server).

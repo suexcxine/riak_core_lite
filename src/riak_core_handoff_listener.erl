@@ -24,8 +24,6 @@
 
 -module(riak_core_handoff_listener).
 
-%% documentation status: done.
-
 -behaviour(gen_nb_server).
 
 -export([start_link/0]).

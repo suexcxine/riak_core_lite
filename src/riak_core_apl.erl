@@ -24,7 +24,6 @@
 %% -------------------------------------------------------------------
 -module(riak_core_apl).
 
-%% documentation status: done
 
 -export([active_owners/1, active_owners/2, get_apl/3,
          get_apl/4, get_apl_ann/2, get_apl_ann/3, get_apl_ann/4,
