@@ -23,7 +23,6 @@
 %% -------------------------------------------------------------------
 -module(chashbin).
 
-%% documentation status : done
 
 -export([create/1, to_chash/1, to_list/1,
          to_list_filter/2, responsible_index/2,

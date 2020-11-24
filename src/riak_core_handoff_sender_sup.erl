@@ -20,8 +20,6 @@
 
 -module(riak_core_handoff_sender_sup).
 
-%% documentation status: done
-
 -behaviour(supervisor).
 
 %% callbacks

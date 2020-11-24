@@ -21,7 +21,6 @@
 %% -------------------------------------------------------------------
 -module(riak_core).
 
-%% documentation status: done
 
 -export([stop/0, stop/1, join/1, join/4, staged_join/1,
          remove/1, down/1, leave/0, remove_from_cluster/1]).

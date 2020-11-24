@@ -15,8 +15,6 @@
 %% Copyright (c) 2007-2012 Basho Technologies, Inc.  All Rights Reserved.
 -module(riak_core_handoff_manager).
 
-%% documentation status: done
-
 -behaviour(gen_server).
 
 %% gen_server api
