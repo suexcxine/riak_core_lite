@@ -702,6 +702,7 @@ update_member_meta(Node, State, Member, Key, Val) ->
     State2#chstate{vclock = VClock}.
 
 %% @doc Updates the vector clock and meta data entry for the given member.
+%% @see update_member_meta/5.
 -spec update_member_meta(node(), chstate(), node(),
                          atom(), term(), same_vclock) -> chstate().
 

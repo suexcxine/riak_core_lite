@@ -204,6 +204,16 @@ iterator(HashKey, CHBin) ->
     Pos = responsible_position(HashKey, CHBin),
     #iterator{pos = Pos, start = Pos, chbin = CHBin}.
 
+%% @doc Return iterator pointing to the given index
+-spec exact_iterator(Index :: index() | <<_:160>>,
+                     CHBin :: chashbin()) -> iterator().
+
+exact_iterator(<<Idx:160/integer>>, CHBin) ->
+    exact_iterator(Idx, CHBin);
+exact_iterator(Idx, CHBin) ->
+    Pos = index_position(Idx, CHBin),
+    #iterator{pos = Pos, start = Pos, chbin = CHBin}.
+
 %% @doc Return the `{Index, Owner}' pair pointed to by the iterator
 -spec itr_value(iterator()) -> {index(), node()}.
 
@@ -291,9 +301,12 @@ owner_bin([{Idx, Owner} | Owners], Nodes, Bin) ->
              (hash:as_integer(Idx)):BitSize/integer, Id:16/integer>>,
     owner_bin(Owners, Nodes, Bin2).
 
-%% Return iterator pointing to the given index
-exact_iterator(Idx, CHBin) when is_binary(Idx) ->
-    exact_iterator(hash:as_integer(Idx), CHBin);
-exact_iterator(Idx, CHBin) ->
-    Pos = responsible_position(Idx, CHBin),
-    #iterator{pos = Pos, start = Pos, chbin = CHBin}.
+%% @private
+%% @doc Convert ring index into ring position
+-spec index_position(Index :: index() | <<_:160>>,
+                     CHBin :: chashbin()) -> integer().
+
+index_position(<<Idx:160/integer>>, CHBin) ->
+    index_position(Idx, CHBin);
+index_position(Idx, #chashbin{size = Size}) ->
+    Inc = chash:ring_increment(Size), Idx div Inc rem Size.

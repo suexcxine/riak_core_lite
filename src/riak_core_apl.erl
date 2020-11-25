@@ -74,7 +74,11 @@ active_owners(Service) ->
     active_owners(Ring,
                   riak_core_node_watcher:nodes(Service)).
 
--spec active_owners(ring(), [node()]) -> preflist_ann().
+%% @doc Like {@link active_owners/1} with a specified ring and list of up nodes.
+%% @param Ring Ring to determine the owners.
+%% @param UpNodes List of node that are considered up.
+-spec active_owners(Ring :: ring(),
+                    UpNodes :: [node()]) -> preflist_ann().
 
 active_owners(Ring, UpNodes) ->
     UpNodes1 = UpNodes,
@@ -112,6 +116,9 @@ get_apl(DocIdx, N, Ring, UpNodes) ->
 
 %% @doc Get the active preflist taking account of which nodes are up for a given
 %%      chash/upnodes list and annotate each node with type of primary/fallback.
+-spec get_apl_ann(DocIdx :: docidx(), N :: n_val(),
+                  UpNodes :: [node()]) -> preflist_ann().
+
 get_apl_ann(DocIdx, N, UpNodes) ->
     {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
     get_apl_ann_chbin(DocIdx, N, CHBin, UpNodes).
@@ -198,11 +205,9 @@ get_primary_apl(DocIdx, N, Ring, UpNodes) ->
 
 %% @doc Return the first entry that is up in the preflist for `DocIdx'. This
 %%      will crash if all owning nodes are offline.
--spec first_up(DocIdx :: binary(),
-               Service :: atom()) -> node().
+-spec first_up(DocIdx :: docidx(),
+               Service :: atom()) -> {index(), node()}.
 
-%% TODO Not using the iterator it is now possible to return error instead of
-%% crashing.
 first_up(DocIdx, Service) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     {_, Preflist} =
@@ -215,9 +220,11 @@ first_up(DocIdx, Service) ->
                            end,
                            Preflist)).
 
-%% @doc Returns list of all owners that are curently not up.
--spec offline_owners(Service :: atom()) -> [{index(),
-                                             node()}].
+%% @doc Return a list of owners that are not up.
+%% @param Service on which nodes are running or list of up nodes.
+%% @return List of all indices with owners that are currently not up.
+-spec offline_owners(Service :: atom() |
+                                [node()]) -> [{index(), node()}].
 
 offline_owners(Service) ->
     {ok, CHBin} = riak_core_ring_manager:get_chash_bin(),
@@ -275,6 +282,9 @@ find_fallbacks([{Partition, _Node} | Rest] = Pangs,
     end.
 
 %% @doc Return true if a node is up.
+-spec is_up(Node :: node(),
+            UpNodes :: [node()]) -> boolean().
+
 is_up(Node, UpNodes) -> lists:member(Node, UpNodes).
 
 %% @doc Return annotated preflist with partition ids/nums instead of hashes.

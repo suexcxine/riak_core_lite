@@ -728,7 +728,6 @@ find_violations(Ring, TargetN) ->
     lists:reverse(Bad).
 
 %% @private
-%%
 %% @doc Counts up the number of partitions owned by each node.
 -spec get_counts([node()],
                  [{integer(), _}]) -> [{node(), non_neg_integer()}].

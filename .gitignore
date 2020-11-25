@@ -26,5 +26,6 @@ rebar3.crashdump
 .rebar3/
 core_vnode_eqc.log
 .idea
+.vscode/
 *.iml
 **/*.coverdata
