@@ -333,8 +333,13 @@ remove_from_cluster(Ring, ExitingNode, Seed) ->
                                                 (_, R) -> R
                                             end,
                                             Ring, AllOwners),
-                     riak_core_claim:claim_rebalance_n(TempRing, Other)
+                     TempRing
                end,
+    %% claim algorithm does not work anymore
+    %% rebalance when the ring is updated the next time.
+    %% TODO Make this more efficient and maybe trigger a ring
+    %%      update here
+    %% riak_core_claim:claim_rebalance_n(TempRing, Other)
     ExitRing.
 
 attempt_simple_transfer(Seed, Ring, Owners,

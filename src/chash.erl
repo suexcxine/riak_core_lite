@@ -63,7 +63,7 @@
          node_size/2, offsets/1, partition_id_to_index/2,
          predecessors/2, predecessors/3, ring_increment/1,
          size/1, successors/2, successors/3, update/3,
-         diff_list/2]).
+         diff_list/2, hash_is_partition_boundary/2]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -471,6 +471,17 @@ partition_id_to_index(PartitionID,
       {_, true} -> 0;
       {false, false} -> lists:nth(PartitionID, IndexList)
     end.
+
+-spec hash_is_partition_boundary(index() |
+                                 index_as_int(),
+                                 chash()) -> boolean().
+
+hash_is_partition_boundary(CHashKey, CHash)
+    when is_binary(CHashKey) ->
+    CHashInt = hash:as_integer(CHashKey),
+    hash_is_partition_boundary(CHashInt, CHash);
+hash_is_partition_boundary(CHashInt, {IndexList, _}) ->
+    lists:keymember(CHashInt, 1, IndexList).
 
 %% ====================================================================
 %% Internal functions

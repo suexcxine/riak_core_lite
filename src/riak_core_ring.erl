@@ -123,6 +123,8 @@
 
 -type preflist() :: [{integer(), term()}].
 
+-define(DEFAULT_WEIGHT, 100).
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -266,14 +268,16 @@ fresh(NodeName) -> fresh(NodeName, [NodeName]).
 
 fresh(LocalName, Nodes = [LocalName | _]) ->
     VClock = vclock:increment(LocalName, vclock:fresh()),
-    Weights = [{Node, 100} || Node <- Nodes],
     #chstate{nodename = LocalName,
              clustername = {LocalName, erlang:timestamp()},
              members =
-                 [{LocalName, {valid, VClock, [{gossip_vsn, 2}]}}],
-             chring = chash:fresh(Weights), next = [],
-             claimant = LocalName, seen = [{LocalName, VClock}],
-             rvsn = VClock, vclock = VClock, meta = dict:new()}.
+                 [{Name,
+                   {valid, VClock, [{gossip_vsn, 2}, {weight, 100}]}}
+                  || Name <- Nodes],
+             chring = chash:fresh([{Node, 100} || Node <- Nodes]),
+             next = [], claimant = LocalName,
+             seen = [{LocalName, VClock}], rvsn = VClock,
+             vclock = VClock, meta = dict:new()}.
 
 % @doc Return a value from the cluster metadata dict
 -spec get_meta(Key :: term(),
@@ -338,9 +342,9 @@ owner_node(State) -> State#chstate.nodename.
                                         Node :: term()}].
 
 preflist(Key, State) ->
-    {PrefList, _CHash2} =
-        replication:replicate(hash:as_integer(Key),
-                              State#chstate.chring),
+    PrefList = replication:replicate(hash:as_integer(Key),
+                                     length(chash:members(State#chstate.chring)),
+                                     State),
     [{hash:as_integer(I), N} || {I, N} <- PrefList].
 
 %% @doc Return a randomly-chosen node from amongst the owners.
@@ -555,13 +559,14 @@ is_future_index(CHashKey, OrigIdx, TargetIdx, State) ->
                     MyState :: chstate()) -> chstate().
 
 transfer_node(Idx, Node, MyState) ->
-    {N, CHash} = chash:lookup(Idx, MyState#chstate.chring),
+    N = index_owner(MyState, Idx),
     case N of
-      Node -> MyState#chstate{chring = CHash};
+      Node -> MyState;
       _ ->
           Me = MyState#chstate.nodename,
           VClock = vclock:increment(Me, MyState#chstate.vclock),
-          CHRing = chash:update(Idx, Node, CHash),
+          CHRing = chash:update(Idx, Node,
+                                MyState#chstate.chring),
           MyState#chstate{vclock = VClock, chring = CHRing}
     end.
 
@@ -746,7 +751,7 @@ clear_member_meta(Node, State, Member) ->
 add_member(PNode, State, Node) ->
     %% Set weight, which is currently not considered outside of ring and chash.
     State2 = update_member_meta(PNode, State, Node, weight,
-                                100),
+                                ?DEFAULT_WEIGHT),
     set_member(PNode, State2, Node, joining).
 
 %% @doc Mark a member as invalid
@@ -1156,10 +1161,13 @@ cancel_transfers(Ring) -> Ring#chstate{next = []}.
 %% @param State Ring the node is a member of.
 %% @returns The member's wieght or undefined.
 -spec get_weight(Member :: term(),
-                 State :: chstate()) -> pos_integer() | undefined.
+                 State :: chstate()) -> pos_integer().
 
 get_weight(Member, State) ->
-    get_member_meta(State, Member, weight).
+    case get_member_meta(State, Member, weight) of
+      undefined -> ?DEFAULT_WEIGHT;
+      Weight -> Weight
+    end.
 
 %% @doc Get current mapping of node name to its weight.
 %% @param Ring Ring to get the weights from.
@@ -1266,7 +1274,9 @@ internal_reconcile(State, OtherState) ->
     end.
 
 %% @private
-reconcile_divergent(VNode, StateA, StateB) ->
+reconcile_divergent(VNode,
+                    StateA = #chstate{claimant = Claimant1, rvsn = VC1},
+                    StateB = #chstate{claimant = Claimant2, rvsn = VC2}) ->
     VClock = vclock:increment(VNode,
                               vclock:merge([StateA#chstate.vclock,
                                             StateB#chstate.vclock])),
@@ -1274,9 +1284,42 @@ reconcile_divergent(VNode, StateA, StateB) ->
     Meta = merge_meta({StateA#chstate.nodename,
                        StateA#chstate.meta},
                       {StateB#chstate.nodename, StateB#chstate.meta}),
-    NewState = reconcile_ring(StateA#chstate{members =
-                                                 Members,
-                                             meta = Meta}),
+    V1Newer = vclock:descends(VC1, VC2),
+    V2Newer = vclock:descends(VC2, VC1),
+    EqualVC = vclock:equal(VC1, VC2) and
+                (Claimant1 =:= Claimant2),
+    OldState = case {EqualVC, V1Newer, V2Newer} of
+                 {true, _, _} -> StateA;
+                 {_, true, false} -> StateA;
+                 {_, false, true} -> StateB;
+                 {_, _, _} ->
+                     %% Ring versions were divergent, so fall back to reconciling based
+                     %% on claimant. Under normal operation, divergent ring versions
+                     %% should only occur if there are two different claimants, and one
+                     %% claimant is invalid. For example, when a claimant is removed and
+                     %% a new claimant has just taken over. We therefore chose the ring
+                     %% with the valid claimant.
+                     ValidMembers = [Member || {Member, {Status, _, _}} <- Members, Status =/= invalid],
+                     CValid1 = lists:member(Claimant1, ValidMembers),
+                     CValid2 = lists:member(Claimant2, ValidMembers),
+                     case {CValid1, CValid2} of
+                       {true, false} -> StateA;
+                       {false, true} -> StateB;
+                       {_, _} -> %
+                           %% This can occur when removed/down nodes are still
+                           %% up and gossip to each other. We need to pick a
+                           %% claimant to handle this case, although the choice
+                           %% is irrelevant as a correct valid claimant will
+                           %% eventually emerge when the ring converges.
+                           case Claimant1 < Claimant2 of
+                             true -> StateA;
+                             false -> StateB
+                           end
+                     end
+               end,
+    State = OldState#chstate{members = Members,
+                             meta = Meta},
+    NewState = reconcile_ring(State),
     NewState1 = NewState#chstate{vclock = VClock,
                                  members = Members, meta = Meta},
     log_ring_result(NewState1),
@@ -1447,9 +1490,9 @@ filtered_seen(State = #chstate{seen = Seen}) ->
 -ifdef(TEST).
 
 sequence_test() ->
-    I1 = 365375409332725729550921208179070754913983135744,
+    I1 = 0,
     I2 = 730750818665451459101842416358141509827966271488,
-    A = fresh(a),
+    A = fresh(a, [a, dummy1]),
     B1 = A#chstate{nodename = b},
     B2 = transfer_node(I1, b, B1),
     ?assertEqual(B2, (transfer_node(I1, b, B2))),
@@ -1544,16 +1587,12 @@ rename_test() ->
     ?assertEqual([new@new], (all_members(Ring))).
 
 exclusion_test() ->
-    Ring0 = fresh(node()),
-    Ring1 = transfer_node(0, x, Ring0),
-    ?assertEqual(0,
-                 (random_other_index(Ring1,
-                                     [730750818665451459101842416358141509827966271488]))),
+    I = 730750818665451459101842416358141509827966271488,
+    Ring1 = fresh(node(), [node(), x]),
+    ?assertEqual(0, (random_other_index(Ring1, [I]))),
     ?assertEqual(no_indices,
                  (random_other_index(Ring1, [0]))),
-    ?assertEqual([{730750818665451459101842416358141509827966271488,
-                   node()},
-                  {0, x}],
+    ?assertEqual([{I, node()}, {0, x}],
                  (preflist(hash:as_binary(1), Ring1))).
 
 random_other_node_test() ->

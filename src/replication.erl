@@ -12,13 +12,15 @@
 
 -endif.
 
--export([replicate/2]).
+-export([replicate/3]).
 
 -type index() :: chash:index_as_int().
 
 -type chash() :: chash:chash().
 
 -type node_entry() :: chash:node_entry().
+
+-type ring() :: riak_core_ring:riak_core_ring().
 
 -define(REPLICATION,
         application:get_env(riak_core, replication, random)).
@@ -30,11 +32,12 @@
 %% the segment lengths in the ring
 %% -incremental: rotate the key around the ring with the step lengths depending
 %% on the segment the key currently belongs to
--spec replicate(Key :: index(),
-                CHash :: chash()) -> {[node_entry()], chash()}.
+-spec replicate(Key :: index(), N :: pos_integer(),
+                Ring :: ring()) -> [node_entry()].
 
-replicate(Key, CHash) ->
-    replicate(?REPLICATION, Key, CHash).
+replicate(Key, N, Ring) ->
+    replicate(?REPLICATION, Key, N,
+              riak_core_ring:chash(Ring)).
 
 %% @doc Constructs the preference list according to the given algorithm:
 %% -random: draw random bins until enough are drawn
@@ -44,35 +47,36 @@ replicate(Key, CHash) ->
 %% on the segment the key currently belongs to
 -spec replicate(Method :: random | rotation |
                           incremental,
-                Key :: index(), CHash :: chash()) -> {[node_entry()],
-                                                      chash()}.
+                N :: pos_integer(), Key :: index(),
+                CHash :: chash()) -> [node_entry()].
 
-replicate(random, Key, CHash) -> random(Key, CHash);
-replicate(rotation, Key, CHash) -> rotation(Key, CHash);
-replicate(incremental, Key, CHash) ->
-    incremental(Key, CHash).
+replicate(random, Key, N, CHash) ->
+    random(Key, N, CHash);
+replicate(rotation, Key, N, CHash) ->
+    rotation(Key, N, CHash);
+replicate(incremental, Key, N, CHash) ->
+    incremental(Key, N, CHash).
 
 %% @private
 %% Constructs the preference list for the given key via the random
 %% algorithm.
--spec random(index(), chash()) -> {[node_entry()],
-                                   chash()}.
+-spec random(index(), pos_integer(),
+             chash()) -> [node_entry()].
 
-random(Key, CHash) ->
+random(Key, N, CHash) ->
     rand:seed(exsss, hash:as_integer(Key)),
     {NodeEntry, CHash2} = chash:lookup_node_entry(Key,
                                                   CHash),
-    {PrefList, CHash3} = random(CHash2,
-                                length(chash:members(CHash2)), [NodeEntry]),
-    {lists:reverse(PrefList), CHash3}.
+    {PrefList, _} = random_rec(CHash2, N, [NodeEntry]),
+    lists:reverse(PrefList).
 
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
--spec random(chash(), pos_integer(),
-             [node_entry()]) -> {[node_entry()], chash()}.
+-spec random_rec(chash(), pos_integer(),
+                 [node_entry()]) -> {[node_entry()], chash()}.
 
-random(CHash, N, PrefList) ->
+random_rec(CHash, N, PrefList) ->
     case length(PrefList) >= N of
       true -> {PrefList, CHash};
       false ->
@@ -80,28 +84,27 @@ random(CHash, N, PrefList) ->
               chash:lookup_node_entry(hash:as_integer(rand:uniform()),
                                       CHash),
           NPref = update_preflist(Node, PrefList),
-          random(CHash2, N, NPref)
+          random_rec(CHash2, N, NPref)
     end.
 
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
--spec rotation(index(), chash()) -> {[node_entry()],
-                                     chash()}.
+-spec rotation(index(), pos_integer(),
+               chash()) -> [node_entry()].
 
-rotation(Key, CHash) ->
+rotation(Key, N, CHash) ->
     {Node, CHash2} = chash:lookup_node_entry(Key, CHash),
-    {PrefList, CHash3} = rotation(Key, CHash2,
-                                  length(chash:members(CHash2)),
-                                  chash:offsets(CHash2), [], [Node], 0),
-    {lists:reverse(PrefList), CHash3}.
+    PrefList = rotation(Key, CHash2, N,
+                        chash:offsets(CHash2), [], [Node], 0),
+    lists:reverse(PrefList).
 
 %% @private
 %% Constructs the preference list for the given key via the rotation
 %% algorithm.
 -spec rotation(index(), chash(), pos_integer(),
                [index()], [index()], [node_entry()],
-               non_neg_integer()) -> {[node_entry()], chash()}.
+               non_neg_integer()) -> [node_entry()].
 
 rotation(Key, CHash, N, [], NextOffsets, PrefList, I) ->
     rotation(Key, CHash, N, lists:reverse(NextOffsets), [],
@@ -109,7 +112,7 @@ rotation(Key, CHash, N, [], NextOffsets, PrefList, I) ->
 rotation(Key, CHash, N, Offsets, NextOffsets, PrefList,
          I) ->
     case length(PrefList) >= N of
-      true -> {PrefList, CHash};
+      true -> PrefList;
       false ->
           [Offset | Rest] = Offsets,
           %% WARN potential rounding errors
@@ -127,13 +130,13 @@ rotation(Key, CHash, N, Offsets, NextOffsets, PrefList,
 %% @private
 %% Constructs the preference list for the given key via the incremental
 %% algorithm.
--spec incremental(index(), chash()) -> {[node_entry()],
-                                        chash()}.
+-spec incremental(index(), pos_integer(),
+                  chash()) -> [node_entry()].
 
-incremental(Key, CHash) ->
+incremental(Key, N, CHash) ->
     {Node, CHash2} = chash:lookup_node_entry(Key, CHash),
-    incremental(Key, CHash2, length(chash:members(CHash2)),
-                [Node]).
+    {PrefList, _} = incremental(Key, CHash2, N, [Node]),
+    PrefList.
 
 %% @private
 %% Constructs the preference list for the given key via the incremental
@@ -216,24 +219,28 @@ test_chash() ->
                F),
      stale}.
 
+n(CHash) -> length(chash:members(CHash)).
+
 is_deterministic(Mode) ->
     CHash = test_chash(),
-    {PrefList, CHash2} = replicate(Mode, ?TEST_KEY, CHash),
+    N = n(CHash),
+    PrefList = replicate(Mode, ?TEST_KEY, N, CHash),
     lists:all(fun (_) ->
-                      {PrefList2, _} = replicate(Mode, ?TEST_KEY, CHash2),
+                      PrefList2 = replicate(Mode, ?TEST_KEY, N, CHash),
                       PrefList2 == PrefList
               end,
               lists:seq(1, 100)).
 
 is_complete(Mode) ->
     CHash = test_chash(),
-    N = 4,
-    {PrefList, _} = replicate(Mode, ?TEST_KEY, CHash),
+    N = n(CHash),
+    PrefList = replicate(Mode, ?TEST_KEY, N, CHash),
     length(PrefList) == N.
 
 is_unique(Mode) ->
     CHash = test_chash(),
-    {PrefList, _} = replicate(Mode, ?TEST_KEY, CHash),
+    NVal = n(CHash),
+    PrefList = replicate(Mode, ?TEST_KEY, NVal, CHash),
     PrefNodes = [N || {_I, N} <- PrefList],
     length(PrefList) ==
       sets:size(sets:from_list(PrefNodes)).
