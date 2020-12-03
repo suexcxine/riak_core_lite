@@ -1299,7 +1299,9 @@ reconcile_divergent(VNode,
                      %% claimant is invalid. For example, when a claimant is removed and
                      %% a new claimant has just taken over. We therefore chose the ring
                      %% with the valid claimant.
-                     ValidMembers = [Member || {Member, {Status, _, _}} <- Members, Status =/= invalid],
+                     ValidMembers = [Member
+                                     || {Member, {Status, _, _}} <- Members,
+                                        Status =/= invalid],
                      CValid1 = lists:member(Claimant1, ValidMembers),
                      CValid2 = lists:member(Claimant2, ValidMembers),
                      case {CValid1, CValid2} of

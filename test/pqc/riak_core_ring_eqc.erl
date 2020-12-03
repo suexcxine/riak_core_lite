@@ -50,15 +50,18 @@ eqc_test_() ->
 
 
 prop_future_index() ->
-    ?FORALL({CHashKey, OrigIdx, TargetIdx, N, Pos, Ring}=TransferItem, resize_item(),
-            ?WHENFAIL(prop_future_index_failed(TransferItem),
-                      collect(N =/= undefined andalso Pos >= N,
-                              begin
-                                  {Time, Val} = timer:tc(riak_core_ring, future_index,
-                                                         [CHashKey, OrigIdx, N, Ring]),
-                                  measure(future_index_usec, Time, TargetIdx =:= Val)
-                              end))).
+    %% ?FORALL({CHashKey, OrigIdx, TargetIdx, N, Pos, Ring}=TransferItem, resize_item(),
+    %%         ?WHENFAIL(prop_future_index_failed(TransferItem),
+    %%                   collect(N =/= undefined andalso Pos >= N,
+    %%                           begin
+    %%                               {Time, Val} = timer:tc(riak_core_ring, future_index,
+    %%                                                      [CHashKey, OrigIdx, N, Ring]),
+    %%                               measure(future_index_usec, Time, TargetIdx =:= Val)
+    %%                           end))).
+    true.
 
+%% TODO Resize operations do not exist anymore. Need another way to test
+%%      properties.
 resize_item() ->
     %% RingSize - Starting Ring Size
     %% GrowthFactor - >1 expanding, <1 shrinking
@@ -73,22 +76,25 @@ resize_item() ->
                check_nval(RingSize, GrowthF)},
               begin
                   Ring0 = riak_core_ring:fresh(node()),
-                  Ring1 = riak_core_ring:resize(Ring0,trunc(GrowthF * RingSize)),
-                  Ring = riak_core_ring:set_pending_resize(Ring1, Ring0),
+                  %% Ring1 = riak_core_ring:resize(Ring0,trunc(GrowthF * RingSize)),
+                  %% Ring = riak_core_ring:set_pending_resize(Ring1, Ring0),
+                  Ring1 = Ring0, % temporary
+                  Ring = Ring0, % temporary
                   CHashKey = hash:as_binary(IndexStart - 1),
                   Preflist = riak_core_ring:preflist(CHashKey, Ring0),
                   FuturePreflist = riak_core_ring:preflist(CHashKey, Ring1),
-                  {SourceIdx, _} = lists:nth(Pos+1, Preflist),
-
+                  %% {SourceIdx, _} = lists:nth(Pos+1, Preflist),
+                  SourceIdx = 1, % temporary
                   %% account for case where position is greater than
                   %% future ring size or possbly known N-value
                   %% (shrinking) we shouldn't have a target index in
                   %% that case since a transfer to it would be invalid
-                  case Pos >= riak_core_ring:num_partitions(Ring1) orelse
-                      (N =/= undefined andalso Pos >= N) of
-                      true -> TargetIdx = undefined;
-                      false -> {TargetIdx, _} = lists:nth(Pos+1, FuturePreflist)
-                  end,
+                  %% case Pos >= riak_core_ring:num_partitions(Ring1) orelse
+                  %%     (N =/= undefined andalso Pos >= N) of
+                  %%     true -> TargetIdx = undefined;
+                  %%     false -> {TargetIdx, _} = lists:nth(Pos+1, FuturePreflist)
+                  %% end,
+                  TargetIdx = 1, % temporary
                   {CHashKey, SourceIdx, TargetIdx, N, Pos, Ring}
               end)).
 
@@ -118,11 +124,12 @@ check_nval(RingSize, GrowthF) ->
 
 
 prop_future_index_failed({CHashKey, OrigIdx, TargetIdx, NValCheck, _, R}) ->
-    CHashInt = hash:as_integer(CHashKey),
-    FoundTarget = riak_core_ring:future_index(CHashKey, OrigIdx, NValCheck, R),
-    io:format("key: ~p~nsource: ~p~ncurrsize: ~p~nfuturesize: ~p~nexpected: ~p~nactual: ~p~n",
-              [CHashInt, OrigIdx,
-               riak_core_ring:num_partitions(R), riak_core_ring:future_num_partitions(R),
-               TargetIdx, FoundTarget]).
+    %% CHashInt = hash:as_integer(CHashKey),
+    %% FoundTarget = riak_core_ring:future_index(CHashKey, OrigIdx, NValCheck, R),
+    %% io:format("key: ~p~nsource: ~p~ncurrsize: ~p~nfuturesize: ~p~nexpected: ~p~nactual: ~p~n",
+    %%           [CHashInt, OrigIdx,
+    %%            riak_core_ring:num_partitions(R), riak_core_ring:future_num_partitions(R),
+    %%            TargetIdx, FoundTarget]).
+    true.
 
 -endif.

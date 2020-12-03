@@ -36,8 +36,7 @@
          handle_info/2, terminate/2, code_change/3]).
 
 -type action() :: leave | remove | {replace, node()} |
-                  {force_replace, node()} | {resize, integer()} |
-                  abort_resize.
+                  {force_replace, node()}.
 
 -type
      riak_core_ring() :: riak_core_ring:riak_core_ring().
@@ -63,18 +62,12 @@
                                        is_claimant | already_replacement |
                                        invalid_replacement.
 
--type resize_request_error() :: same_size |
-                                single_node | pending_changes.
-
--type resize_abort_request_error() :: not_resizing.
-
 -type request_error() :: leave_request_error() |
                          remove_request_error() | replace_request_error() |
-                         force_replace_request_error() |
-                         resize_request_error() | resize_abort_request_error().
+                         force_replace_request_error().
 
 -type commit_error() :: nothing_planned |
-                        invalid_resize_claim | ring_not_ready | plan_changed.
+                        ring_not_ready | plan_changed.
 
 -type log() :: fun((atom(), term()) -> ok).
 
@@ -120,8 +113,7 @@ start_link() ->
 %%      any additional transitions triggered by later rebalancing).
 %% @returns `{ok, Changes, NextRings}' if the plan can be generated,
 %%          `{error, Reason}' otherwise.
--spec plan() -> {error,
-                 ring_not_ready | invalid_resize_claim} |
+-spec plan() -> {error, ring_not_ready} |
                 {ok, [change()], [riak_core_ring()]}.
 
 plan() -> gen_server:call(claimant(), plan, infinity).
@@ -357,8 +349,7 @@ maybe_stage(Node, Action, Ring,
 %%      the cluster. See {@link plan/0} for additional details.
 -spec generate_plan(Ring :: riak_core_ring(),
                     State :: state()) -> {{ok, [change()],
-                                           [riak_core_ring()]} |
-                                          {error, invalid_resize_claim},
+                                           [riak_core_ring()]},
                                           state()}.
 
 generate_plan(Ring,
@@ -375,9 +366,7 @@ generate_plan(Ring,
 -spec generate_plan(Changes :: [change()],
                     Ring :: riak_core_ring(), State :: state()) -> {{ok,
                                                                      [change()],
-                                                                     [riak_core_ring()]} |
-                                                                    {error,
-                                                                     invalid_resize_claim},
+                                                                     [riak_core_ring()]},
                                                                     state()}.
 
 generate_plan([], _, State) ->
@@ -417,7 +406,6 @@ commit_staged(State) ->
                                                 riak_core_ring()} |
                                                not_changed |
                                                {not_changed,
-                                                invalid_resize_claim |
                                                 ring_not_ready | plan_changed}.
 
 maybe_commit_staged(State) ->
@@ -430,7 +418,6 @@ maybe_commit_staged(State) ->
                           State :: state()) -> {new_ring, riak_core_ring()} |
                                                ignore |
                                                {ignore,
-                                                invalid_resize_claim |
                                                 ring_not_ready | plan_changed}.
 
 maybe_commit_staged(Ring,
@@ -539,8 +526,6 @@ remove_joining_nodes_from_ring(Claimant, Joining,
 %% @see valid_remove_request/2.
 %% @see valid_replace_request/4.
 %% @see valid_force_replace_request/4.
-%% @see valid_resize_request/3.
-%% @see valid_resize_abort_request/1.
 -spec valid_request(Node :: node(), Action :: action(),
                     Changes :: [change()],
                     Ring :: riak_core_ring()) -> true |
@@ -802,9 +787,7 @@ do_maybe_force_ring_update(Ring) ->
 -spec compute_all_next_rings(Changes :: [change()],
                              Seed :: erlang:timestamp(),
                              Ring :: riak_core_ring()) -> {ok,
-                                                           [ring_transition()]} |
-                                                          {error,
-                                                           invalid_resize_claim}.
+                                                           [ring_transition()]}.
 
 compute_all_next_rings(Changes, Seed, Ring) ->
     compute_all_next_rings(Changes, Seed, Ring, []).
@@ -815,9 +798,7 @@ compute_all_next_rings(Changes, Seed, Ring) ->
                              Seed :: erlang:timestamp(),
                              Ring :: riak_core_ring(),
                              Acc :: [ring_transition()]) -> {ok,
-                                                             [ring_transition()]} |
-                                                            {error,
-                                                             invalid_resize_claim}.
+                                                             [ring_transition()]}.
 
 compute_all_next_rings(Changes, Seed, Ring, Acc) ->
     {ok, NextRing} = compute_next_ring(Changes, Ring),
@@ -831,9 +812,7 @@ compute_all_next_rings(Changes, Seed, Ring, Acc) ->
 
 %% @doc Compute the next ring by applying all staged changes.
 -spec compute_next_ring(Changes :: [change()],
-                        Ring :: riak_core_ring()) -> {ok, riak_core_ring()} |
-                                                     {error,
-                                                      invalid_resize_claim}.
+                        Ring :: riak_core_ring()) -> {ok, riak_core_ring()}.
 
 compute_next_ring(Changes, Ring) ->
     Ring2 = apply_changes(Ring, Changes),
