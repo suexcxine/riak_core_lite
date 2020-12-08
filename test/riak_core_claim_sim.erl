@@ -539,6 +539,7 @@ commission_claims() ->
 -ifdef(TEST).
 
 run_test() ->
+    meck:expect(riak_core_partisan_utils, update, fun(_) -> ok end),
     Ring = riak_core_ring:fresh(64, anode),
     ?assertEqual(ok, run([{ring, Ring},
                           {target_n_val,2},
