@@ -1031,14 +1031,15 @@ maybe_update_ring(Node, CState, Log) ->
             _ ->
                 %% If there are pending changes not handed off, do not update
                 %% the ring.
-                Next1 = [Change
-                         || Change = {_, _, _, _, awaiting}
-                                <- riak_core_ring:pending_changes(CState)],
+                Next1 = riak_core_ring:pending_changes(CState),
                 case Next1 /= [] of
                   true ->
                       %% Transfer ownership after completed handoff
-                      transfer_ownership(CState, Log);
+                      {Changed, CState2} = transfer_ownership(CState, Log),
+                      {Changed, CState2};
+                      
                   _ ->
+
                       {Changed, CState2} = update_ring(Node, CState, Log),
                       {Changed, CState2}
                 end
@@ -1181,19 +1182,14 @@ update_ring(CNode, CState, Log) ->
     CState1 = riak_core_ring:set_chash(CState, OldHOCHash),
     CState2 = riak_core_ring:set_pending_changes(CState1,
                                                  Next2),
-    %% Transfer ownership after completed handoff
-    {RingChanged1, CState3} = transfer_ownership(CState2,
-                                                 Log),
     ?ROUT("Updating ring :: next1 : ~p~n",
           [riak_core_ring:pending_changes(CState3)]),
-    ?ROUT("Updating ring :: next2 : ~p~n",
-          [riak_core_ring:pending_changes(CState4)]),
     Log(debug,
         {"Pending ownership transfers: ~b~n",
-         [length(riak_core_ring:pending_changes(CState3))]}),
+         [length(riak_core_ring:pending_changes(CState2))]}),
     %% Remove transfers to/from down nodes
-    Next4 = handle_down_nodes(CState3, Next2),
-    Changed = RingChanged1,
+    Next4 = handle_down_nodes(CState2, Next2),
+    Changed = DiffList =/= [],
     case Changed of
       true ->
           NewS = ordsets:from_list([{Idx, O, NO}
@@ -1201,7 +1197,7 @@ update_ring(CNode, CState, Log) ->
           Diff = NewS,
           _ = [Log(next, NChange) || NChange <- Diff],
           ?ROUT("Updating ring :: next3 : ~p~n", [Next4]),
-          CState5 = riak_core_ring:set_pending_changes(CState3,
+          CState5 = riak_core_ring:set_pending_changes(CState2,
                                                        Next4),
           CState6 = riak_core_ring:increment_ring_version(CNode,
                                                           CState5),
