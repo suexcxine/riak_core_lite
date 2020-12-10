@@ -391,19 +391,17 @@ successors(Index, CHash, N) ->
        true -> {Res, _} = lists:split(Num, Ordered), Res
     end.
 
-%% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
+%% @doc Make the partition beginning at IndexAsInt owned by Name'd node and
+%%      merge neighbouring partition owned by the same node.
 -spec update(IndexAsInt :: index_as_int(),
              Name :: chash_node(), CHash :: chash()) -> chash().
 
-%% TODO
-%% Find usages and adapt them according to implementation in this module.
-%% Used to
-%% - renaming a node -> ok
-%% - transferring a node to a partition
 update(IndexAsInt, Name, CHash) ->
     {Nodes, _} = CHash,
-    NewNodes = lists:keyreplace(IndexAsInt, 1, Nodes,
-                                {IndexAsInt, Name}),
+    NewNodes =
+        combine_neighbors_index_list(lists:keyreplace(IndexAsInt,
+                                                      1, Nodes,
+                                                      {IndexAsInt, Name})),
     {NewNodes, stale}.
 
 %% @doc Create the intermediate chash structures containing indices of both the
@@ -542,7 +540,7 @@ node_size(Index, [{I, _} | T], Start) ->
 make_size_map2(OldSizeMap, DiffMap, _NewOwnerWeights) ->
     SizeMap = apply_diffmap(DiffMap, OldSizeMap),
     XX =
-        combine_neighbors(collapse_unused_in_size_map(SizeMap)),
+        combine_neighbors_size_map(collapse_unused_in_size_map(SizeMap)),
     XX.
 
 %% @private
@@ -625,13 +623,44 @@ apply_diffmap_add(_Ch, _Diff, []) -> [].
 
 %% @private
 %% @doc Merge all neighboring sections with the same owner.
--spec combine_neighbors(size_map()) -> size_map().
+-spec
+     combine_neighbors_size_map(size_map()) -> size_map().
 
-combine_neighbors([{Ch, Wt1}, {Ch, Wt2} | T]) ->
-    combine_neighbors([{Ch, Wt1 + Wt2} | T]);
-combine_neighbors([H | T]) ->
-    [H | combine_neighbors(T)];
-combine_neighbors([]) -> [].
+combine_neighbors_size_map([{Ch, Wt1}, {Ch, Wt2}
+                            | T]) ->
+    combine_neighbors_size_map([{Ch, Wt1 + Wt2} | T]);
+combine_neighbors_size_map([H | T]) ->
+    [H | combine_neighbors_size_map(T)];
+combine_neighbors_size_map([]) -> [].
+
+%% @private
+%% @doc Merge all neighboring sections with the same owner. An expection is that
+%%      the 0-index will always be owned and not merged.
+-spec combine_neighbors_index_list(IndexList ::
+                                       index_list()) -> index_list().
+
+combine_neighbors_index_list([{0, ZeroNode} | Rest]) ->
+    [{0, ZeroNode} | combine_neighbors_index_list(Rest,
+                                                  ZeroNode)].
+
+%% @private
+%% @doc Internal function for {@link combine_neighbors_index_list/1}.
+-spec combine_neighbors_index_list(IndexList ::
+                                       index_list(),
+                                   ZeroNode :: chash_node()) -> index_list().
+
+combine_neighbors_index_list([], _) -> [];
+combine_neighbors_index_list([{_, ZeroNode}],
+                             ZeroNode) ->
+    [];
+combine_neighbors_index_list([Entry], _) -> [Entry];
+combine_neighbors_index_list([{_, Node}, {I, Node}
+                              | Rest],
+                             ZeroNode) ->
+    combine_neighbors_index_list([{I, Node} | Rest],
+                                 ZeroNode);
+combine_neighbors_index_list([H | Rest], ZeroNode) ->
+    [H | combine_neighbors_index_list(Rest, ZeroNode)].
 
 %% @private
 %% @doc Asign neighboring unused sections to the successor owner.
@@ -845,7 +874,7 @@ update_test() ->
     Node = old@host,
     NewNode = new@host,
     % Create a fresh ring...
-    CHash = {[{1, Node}, {3, Node}, {4, Node}, {6, Node},
+    CHash = {[{0, Node}, {3, Node}, {4, Node}, {6, Node},
               {8, Node}],
              stale},
     GetNthIndex = fun (N, {Nodes, _}) ->
@@ -854,13 +883,9 @@ update_test() ->
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
-    {[{_, NewNode}, {_, Node}, {_, Node}, {_, Node},
-      {_, Node}],
-     _} =
-        update(FirstIndex, NewNode, CHash),
-    {[{_, Node}, {_, Node}, {_, NewNode}, {_, Node},
-      {_, Node}],
-     _} =
+    {[{_, NewNode}, {_, Node}], _} = update(FirstIndex,
+                                            NewNode, CHash),
+    {[{_, Node}, {_, Node}, {_, NewNode}], _} =
         update(ThirdIndex, NewNode, CHash).
 
 contains_test() ->
@@ -876,14 +901,14 @@ contains_test() ->
 
 successors_length_test() ->
     Node = the_node,
-    CHash = {[{1, Node}, {2, Node}, {3, Node}, {4, Node},
+    CHash = {[{0, Node}, {2, Node}, {3, Node}, {4, Node},
               {5, Node}, {6, Node}, {7, Node}, {8, Node}],
              stale},
     ?assertEqual(8, (length(chash:successors(0, CHash)))).
 
 inverse_pred_test() ->
     Node = the_node,
-    CHash = {[{1, Node}, {2, Node}, {3, Node}, {4, Node},
+    CHash = {[{0, Node}, {2, Node}, {3, Node}, {4, Node},
               {5, Node}, {6, Node}, {7, Node}, {8, Node}],
              stale},
     S = [I

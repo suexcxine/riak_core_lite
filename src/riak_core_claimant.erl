@@ -1037,9 +1037,7 @@ maybe_update_ring(Node, CState, Log) ->
                       %% Transfer ownership after completed handoff
                       {Changed, CState2} = transfer_ownership(CState, Log),
                       {Changed, CState2};
-                      
                   _ ->
-
                       {Changed, CState2} = update_ring(Node, CState, Log),
                       {Changed, CState2}
                 end
