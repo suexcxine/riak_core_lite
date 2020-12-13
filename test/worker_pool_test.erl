@@ -100,6 +100,7 @@ deadlock_test() ->
 
 
 simple_reply_worker_pool() ->
+    meck:expect(riak_core_partisan_utils, bang_unreliable, fun(_V, _D, _M) -> ok end),
     {ok, Pool} = riak_core_vnode_worker_pool:start_link(?MODULE, 3, 10, true, []),
     [ riak_core_vnode_worker_pool:handle_work(Pool, fun() ->
                         timer:sleep(10),
@@ -117,6 +118,7 @@ simple_reply_worker_pool() ->
     ok = wait_for_process_death(Pool).
 
 simple_noreply_worker_pool() ->
+    meck:expect(riak_core_partisan_utils, bang_unreliable, fun(_V, _D, _M) -> ok end),
     {ok, Pool} = riak_core_vnode_worker_pool:start_link(?MODULE, 3, 10, false, []),
     [ riak_core_vnode_worker_pool:handle_work(Pool, fun() ->
                         timer:sleep(10),

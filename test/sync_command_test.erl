@@ -55,6 +55,8 @@ sync_test_() ->
 
 
 setup_simple() ->
+    meck:expect(riak_core_partisan_utils, bang_unreliable, fun(_V, _D, _M) -> ok end),
+    meck:expect(riak_core_partisan_utils, bang_reliable, fun(_V, _D, _M) -> ok end),
     stop_servers(self()),
     Vars = [{ring_creation_size, 8},
             {ring_state_dir, "<nostore>"},
