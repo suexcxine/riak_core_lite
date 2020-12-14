@@ -219,14 +219,11 @@ init_complete(_) -> false.
 standard_join(Node, Ring, Rejoin, Auto) ->
     {ok, MyRing} = riak_core_ring_manager:get_raw_ring(),
     InitComplete = init_complete(init:get_status()),
-    SameSize = riak_core_ring:num_partitions(MyRing) =:=
-                 riak_core_ring:num_partitions(Ring),
     Singleton = [node()] =:=
                   riak_core_ring:all_members(MyRing),
-    case {InitComplete, Rejoin or Singleton, SameSize} of
-      {false, _, _} -> {error, node_still_starting};
-      {_, false, _} -> {error, not_single_node};
-      {_, _, false} -> {error, different_ring_sizes};
+    case {InitComplete, Rejoin or Singleton} of
+      {false, _} -> {error, node_still_starting};
+      {_, false} -> {error, not_single_node};
       _ ->
           Ring2 = riak_core_ring:add_member(node(), Ring, node()),
           Ring3 = riak_core_ring:set_owner(Ring2, node()),

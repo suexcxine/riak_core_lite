@@ -1163,7 +1163,6 @@ update_ring(CNode, CState, Log) ->
           [riak_core_ring:members(CState,
                                   [joining, valid, leaving, exiting,
                                    invalid])]),
-    %% Remove tuples from next for removed nodes
     ClaimingMembers =
         riak_core_ring:claiming_members(CState),
     Weights = [{Node, Weight}
@@ -1177,16 +1176,16 @@ update_ring(CNode, CState, Log) ->
     Next2 = lists:ukeysort(1,
                            [{Index, Owner, NextOwner, [], awaiting}
                             || {Index, Owner, NextOwner} <- DiffList]),
-    CState1 = riak_core_ring:set_chash(CState, OldHOCHash),
-    CState2 = riak_core_ring:set_pending_changes(CState1,
+    CState3 = riak_core_ring:set_chash(CState, OldHOCHash),
+    CState4 = riak_core_ring:set_pending_changes(CState3,
                                                  Next2),
     ?ROUT("Updating ring :: next1 : ~p~n",
-          [riak_core_ring:pending_changes(CState3)]),
+          [riak_core_ring:pending_changes(CState4)]),
     Log(debug,
         {"Pending ownership transfers: ~b~n",
-         [length(riak_core_ring:pending_changes(CState2))]}),
+         [length(riak_core_ring:pending_changes(CState4))]}),
     %% Remove transfers to/from down nodes
-    Next4 = handle_down_nodes(CState2, Next2),
+    Next4 = handle_down_nodes(CState4, Next2),
     Changed = DiffList =/= [],
     case Changed of
       true ->
@@ -1194,8 +1193,8 @@ update_ring(CNode, CState, Log) ->
                                     || {Idx, O, NO, _, _} <- Next4]),
           Diff = NewS,
           _ = [Log(next, NChange) || NChange <- Diff],
-          ?ROUT("Updating ring :: next3 : ~p~n", [Next4]),
-          CState5 = riak_core_ring:set_pending_changes(CState2,
+          ?ROUT("Updating ring :: next4 : ~p~n", [Next4]),
+          CState5 = riak_core_ring:set_pending_changes(CState4,
                                                        Next4),
           CState6 = riak_core_ring:increment_ring_version(CNode,
                                                           CState5),
@@ -1231,13 +1230,14 @@ transfer_ownership(CState, Log) ->
                                   end
                           end,
                           CState, Next2),
-    NextChanged = Next2 /= Next,
-    RingChanged = riak_core_ring:all_owners(CState) /=
-                    riak_core_ring:all_owners(CState2),
-    Changed = NextChanged or RingChanged,
     CState3 = riak_core_ring:set_pending_changes(CState2,
                                                  Next2),
-    {Changed, CState3}.
+    CState4 = handle_leaving(CState3),
+    NextChanged = Next2 /= Next,
+    RingChanged = riak_core_ring:all_owners(CState) /=
+                    riak_core_ring:all_owners(CState4),
+    Changed = NextChanged or RingChanged,
+    {Changed, CState4}.
 
 %% @private
 %% @doc Assign indices owned by replaced nodes to the one replacing them.
@@ -1372,6 +1372,22 @@ remove_node(CState, Node, Status, Replacing, Seed, Log,
     CState3 = riak_core_ring:set_pending_changes(CState2,
                                                  Next2),
     CState3.
+
+%% @private
+%% @doc Remove leaving nodes from the cluster if they do not own any partitions.
+-spec handle_leaving(CState ::
+                         riak_core_ring()) -> riak_core_ring().
+
+handle_leaving(CState) ->
+    Owners = lists:usort([Owner
+                          || {_, Owner} <- riak_core_ring:all_owners(CState)]),
+    LeavingMembers = [Member
+                      || Member <- riak_core_ring:members(CState, [leaving]),
+                         not lists:member(Member, Owners)],
+    lists:foldl(fun (Member, Ring) ->
+                        riak_core_ring:exit_member(node(), Ring, Member)
+                end,
+                CState, LeavingMembers).
 
 -spec no_log(any(), any()) -> ok.
 

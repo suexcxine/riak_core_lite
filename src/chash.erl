@@ -57,13 +57,14 @@
 -endif.
 
 %% chash API
--export([contains_name/2, fresh/1, change/2, lookup/2,
-         lookup_node_entry/2, key_of/1, index_to_partition_id/2,
-         make_handoff_chash/2, members/1, next_index/2, nodes/1,
-         node_size/2, offsets/1, partition_id_to_index/2,
-         predecessors/2, predecessors/3, ring_increment/1,
-         size/1, successors/2, successors/3, update/3,
-         diff_list/2, hash_is_partition_boundary/2]).
+-export([contains_name/2, fresh/1, change/2, compact/1,
+         lookup/2, lookup_node_entry/2, key_of/1,
+         index_to_partition_id/2, make_handoff_chash/2,
+         members/1, next_index/2, nodes/1, node_size/2,
+         offsets/1, partition_id_to_index/2, predecessors/2,
+         predecessors/3, ring_increment/1, size/1, successors/2,
+         successors/3, update/3, diff_list/2,
+         hash_is_partition_boundary/2]).
 
 %% Owner for a range on the unit interval.  We are agnostic about its
 %% type.
@@ -212,13 +213,28 @@ fresh(WeightMap) ->
     {chash_size_map_to_index_list(make_size_map(WeightMap)),
      stale}.
 
+%% @doc Apply the Random Slicing algorithm to compute the chash structure
+%%      resulting from a given chash and a new weight list.
+%% @param CHash Base chash structure.
+%% @param WeightMap List of new node-weight pairs.
+%% @returns Updated chash structure.
 -spec change(CHash :: chash(),
              WeightMap :: owner_weight_list()) -> chash().
 
 change({IndexList, _}, WeightMap) ->
-    {chash_size_map_to_index_list(make_size_map(chash_index_list_to_size_map(IndexList),
-                                                WeightMap)),
-     stale}.
+    NewIndexList =
+        chash_size_map_to_index_list(make_size_map(chash_index_list_to_size_map(IndexList),
+                                                   WeightMap)),
+    {NewIndexList, stale}.
+
+%% @doc Compacts the number of sections by merging neighboring sections owned by
+%%      the same node.
+%% @param CHash CHash structure to compact.
+%% @returns Compacted chash structure.
+-spec compact(CHash :: chash()) -> chash().
+
+compact({IndexList, _}) ->
+    {combine_neighbors_index_list(IndexList), stale}.
 
 %% @doc Find the Node that owns the partition identified by IndexAsInt.
 %% Also Return the chash structure to make use of the lookup structure.
@@ -347,7 +363,6 @@ ring_increment(_NumPartitions) ->
     %% modules.
     %% Used to
     %% - determine partition ID in riak_core_ring_util
-    %% - To help compute the future ring in riak_core_ring
     %% - Various test scenarios
     1.
 
@@ -391,17 +406,14 @@ successors(Index, CHash, N) ->
        true -> {Res, _} = lists:split(Num, Ordered), Res
     end.
 
-%% @doc Make the partition beginning at IndexAsInt owned by Name'd node and
-%%      merge neighbouring partition owned by the same node.
+%% @doc Make the partition beginning at IndexAsInt owned by Name'd node.
 -spec update(IndexAsInt :: index_as_int(),
              Name :: chash_node(), CHash :: chash()) -> chash().
 
 update(IndexAsInt, Name, CHash) ->
     {Nodes, _} = CHash,
-    NewNodes =
-        combine_neighbors_index_list(lists:keyreplace(IndexAsInt,
-                                                      1, Nodes,
-                                                      {IndexAsInt, Name})),
+    NewNodes = lists:keyreplace(IndexAsInt, 1, Nodes,
+                                {IndexAsInt, Name}),
     {NewNodes, stale}.
 
 %% @doc Create the intermediate chash structures containing indices of both the
@@ -883,9 +895,13 @@ update_test() ->
     % Test update...
     FirstIndex = GetNthIndex(1, CHash),
     ThirdIndex = GetNthIndex(3, CHash),
-    {[{_, NewNode}, {_, Node}], _} = update(FirstIndex,
-                                            NewNode, CHash),
-    {[{_, Node}, {_, Node}, {_, NewNode}], _} =
+    {[{0, NewNode}, {3, Node}, {4, Node}, {6, Node},
+      {8, Node}],
+     stale} =
+        update(FirstIndex, NewNode, CHash),
+    {[{0, Node}, {3, Node}, {4, NewNode}, {6, Node},
+      {8, Node}],
+     stale} =
         update(ThirdIndex, NewNode, CHash).
 
 contains_test() ->

@@ -567,7 +567,13 @@ transfer_node(Idx, Node, MyState) ->
           VClock = vclock:increment(Me, MyState#chstate.vclock),
           CHRing = chash:update(Idx, Node,
                                 MyState#chstate.chring),
-          MyState#chstate{vclock = VClock, chring = CHRing}
+          Next = [I
+                  || {I, _, _, _, awaiting} <- MyState#chstate.next],
+          CHRing1 = case Next of
+                      [] -> chash:compact(CHRing);
+                      _ -> CHRing
+                    end,
+          MyState#chstate{vclock = VClock, chring = CHRing1}
     end.
 
 %% @doc Set a key in the cluster metadata dict
