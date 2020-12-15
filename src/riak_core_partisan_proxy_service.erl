@@ -36,6 +36,7 @@
 
 %% State record.
 -record(state, {}).
+-type state() :: #state{}.
 
 %%%===================================================================
 %%% API
@@ -56,20 +57,20 @@ start_link(Opts) ->
 %%%===================================================================
 
 %% @private
--spec init([]) -> {ok, #state{}}.
+-spec init([]) -> {ok, state()}.
 init([]) ->
     {ok, #state{}}.
 
 %% @private
--spec handle_call(term(), {pid(), term()}, #state{}) ->
-    {reply, term(), #state{}}.
+-spec handle_call(term(), {pid(), term()}, state()) ->
+    {reply, term(), state()}.
 
 %% @private
 handle_call(Msg, _From, State) ->
     _ = logger:warning("Unhandled messages: ~p", [Msg]),
     {reply, ok, State}.
 
--spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
+-spec handle_cast(term(), state()) -> {noreply, state()}.
 %% @private
 handle_cast(Msg, State) ->
     _ = logger:warning("Unhandled messages: ~p", [Msg]),
@@ -84,13 +85,13 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 %% @private
--spec terminate(term(), #state{}) -> term().
+-spec terminate(term(), state()) -> term().
 terminate(_Reason, _State) ->
     ok.
 
 %% @private
--spec code_change(term() | {down, term()}, #state{}, term()) ->
-    {ok, #state{}}.
+-spec code_change(term() | {down, term()}, state(), term()) ->
+    {ok, state()}.
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 

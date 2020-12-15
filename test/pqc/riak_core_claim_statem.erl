@@ -17,6 +17,7 @@
 
 %Entry Eunit
 claim_test_()->
+    meck:expect(riak_core_partisan_utils, update, fun(_) -> ok end),
     {timeout, 120,
         ?_assert(proper:quickcheck(prop_claim(with_ring_size(5)),[{numtests, 5000}] ))}.
 
