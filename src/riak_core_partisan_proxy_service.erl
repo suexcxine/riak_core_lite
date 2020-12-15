@@ -65,13 +65,12 @@ init([]) ->
 -spec handle_call(term(), {pid(), term()}, state()) ->
     {reply, term(), state()}.
 
-%% @private
 handle_call(Msg, _From, State) ->
     _ = logger:warning("Unhandled messages: ~p", [Msg]),
     {reply, ok, State}.
 
--spec handle_cast(term(), state()) -> {noreply, state()}.
 %% @private
+-spec handle_cast(term(), state()) -> {noreply, state()}.
 handle_cast(Msg, State) ->
     _ = logger:warning("Unhandled messages: ~p", [Msg]),
     {noreply, State}.
