@@ -143,6 +143,7 @@ make_size_map(NewOwnerWeights) ->
 make_size_map([], NewOwnerWeights) ->
     make_size_map([{unused, hash:max_integer()}],
                   NewOwnerWeights);
+make_size_map(_, []) -> [];
 make_size_map(OldSizeMap, NewOwnerWeights) ->
     NewSum = add_all_weights(NewOwnerWeights),
     %% Reconstruct old owner weights (should sum up to hash:max_integer())

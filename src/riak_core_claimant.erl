@@ -1233,11 +1233,15 @@ transfer_ownership(CState, Log) ->
     CState3 = riak_core_ring:set_pending_changes(CState2,
                                                  Next2),
     CState4 = handle_leaving(CState3),
+    CState5 = case Next2 of
+        [] -> riak_core_ring:compact_ring(CState4);
+        _ -> CState4
+    end,
     NextChanged = Next2 /= Next,
     RingChanged = riak_core_ring:all_owners(CState) /=
-                    riak_core_ring:all_owners(CState4),
+                    riak_core_ring:all_owners(CState5),
     Changed = NextChanged or RingChanged,
-    {Changed, CState4}.
+    {Changed, CState5}.
 
 %% @private
 %% @doc Assign indices owned by replaced nodes to the one replacing them.

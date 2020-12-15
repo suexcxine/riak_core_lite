@@ -34,7 +34,7 @@
          num_partitions/1, owner_node/1, preflist/2,
          random_node/1, random_other_index/1,
          random_other_index/2, random_other_node/1, reconcile/2,
-         rename_node/3, responsible_index/2, transfer_node/3,
+         rename_node/3, responsible_index/2, transfer_node/3, compact_ring/1,
          update_meta/3, remove_meta/2]).
 
 -export([cluster_name/1, set_tainted/1, check_tainted/2,
@@ -567,14 +567,16 @@ transfer_node(Idx, Node, MyState) ->
           VClock = vclock:increment(Me, MyState#chstate.vclock),
           CHRing = chash:update(Idx, Node,
                                 MyState#chstate.chring),
-          Next = [I
-                  || {I, _, _, _, awaiting} <- MyState#chstate.next],
-          CHRing1 = case Next of
-                      [] -> chash:compact(CHRing);
-                      _ -> CHRing
-                    end,
-          MyState#chstate{vclock = VClock, chring = CHRing1}
+          MyState#chstate{vclock = VClock, chring = CHRing}
     end.
+
+%% @doc Merges neighboring sections owned by the same node.
+%% @param Ring Ring to compact.
+%% @returns Compacted ring.
+-spec compact_ring(Ring :: chstate()) -> chstate().
+
+compact_ring(Ring = #chstate{chring = CHash}) ->
+    Ring#chstate{chring = chash:compact(CHash)}.
 
 %% @doc Set a key in the cluster metadata dict
 -spec update_meta(Key :: term(), Val :: term(),
