@@ -757,10 +757,10 @@ clear_member_meta(Node, State, Member) ->
                  node()) -> chstate().
 
 add_member(PNode, State, Node) ->
+    State2 = set_member(PNode, State, Node, joining),
     %% Set weight, which is currently not considered outside of ring and chash.
-    State2 = update_member_meta(PNode, State, Node, weight,
-                                ?DEFAULT_WEIGHT),
-    set_member(PNode, State2, Node, joining).
+    update_member_meta(PNode, State2, Node, weight,
+                                ?DEFAULT_WEIGHT).
 
 %% @doc Mark a member as invalid
 -spec remove_member(node(), chstate(),
