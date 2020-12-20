@@ -34,8 +34,8 @@
          num_partitions/1, owner_node/1, preflist/2,
          random_node/1, random_other_index/1,
          random_other_index/2, random_other_node/1, reconcile/2,
-         rename_node/3, responsible_index/2, transfer_node/3, compact_ring/1,
-         update_meta/3, remove_meta/2]).
+         rename_node/3, responsible_index/2, transfer_node/3,
+         compact_ring/1, update_meta/3, remove_meta/2]).
 
 -export([cluster_name/1, set_tainted/1, check_tainted/2,
          nearly_equal/2, claimant/1, member_status/2,
@@ -760,7 +760,7 @@ add_member(PNode, State, Node) ->
     State2 = set_member(PNode, State, Node, joining),
     %% Set weight, which is currently not considered outside of ring and chash.
     update_member_meta(PNode, State2, Node, weight,
-                                ?DEFAULT_WEIGHT).
+                       ?DEFAULT_WEIGHT).
 
 %% @doc Mark a member as invalid
 -spec remove_member(node(), chstate(),

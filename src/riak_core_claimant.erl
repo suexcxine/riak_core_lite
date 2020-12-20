@@ -1234,9 +1234,9 @@ transfer_ownership(CState, Log) ->
                                                  Next2),
     CState4 = handle_leaving(CState3),
     CState5 = case Next2 of
-        [] -> riak_core_ring:compact_ring(CState4);
-        _ -> CState4
-    end,
+                [] -> riak_core_ring:compact_ring(CState4);
+                _ -> CState4
+              end,
     NextChanged = Next2 /= Next,
     RingChanged = riak_core_ring:all_owners(CState) /=
                     riak_core_ring:all_owners(CState5),
