@@ -1369,12 +1369,14 @@ reconcile_seen(StateA, StateB) ->
 %% @private
 reconcile_ring(StateA) ->
     ClaimingMembers = claiming_members(StateA),
-    %% Same as in claimant:update_ring, maybe export as function?
     Weights = [{Node, Weight}
                || {Node, Weight} <- riak_core_ring:get_weights(StateA),
                   lists:member(Node, ClaimingMembers)],
-    OldCHash = riak_core_ring:chash(StateA),
-    NewCHash = chash:change(OldCHash, Weights),
+    FutureState = FutureState = change_owners(StateA,
+                                              all_next_owners(StateA)),
+    FutureCHash = riak_core_ring:chash(FutureState),
+    OldCHash = chash(StateA),
+    NewCHash = chash:change(FutureCHash, Weights),
     {OldHOCHash, NewHOCHash} =
         chash:make_handoff_chash(OldCHash, NewCHash),
     DiffList = chash:diff_list(OldHOCHash, NewHOCHash),

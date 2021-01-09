@@ -48,6 +48,9 @@
 
 -record(state, {gossip_tokens}).
 
+-type
+     riak_core_ring() :: riak_core_ring:riak_core_ring().
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -206,6 +209,11 @@ schedule_next_reset() ->
     {_, Reset} = application:get_env(riak_core,
                                      gossip_limit, ?DEFAULT_LIMIT),
     erlang:send_after(Reset, ?MODULE, reset_tokens).
+
+-spec reconcile(Ring0 :: riak_core_ring(),
+                [OtherRing0 :: riak_core_ring()]) -> ignore |
+                                                     {reconciled_ring,
+                                                      riak_core_ring()}.
 
 %%noinspection ErlangUnboundVariable
 reconcile(Ring0, [OtherRing0]) ->
