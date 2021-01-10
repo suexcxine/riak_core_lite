@@ -294,17 +294,20 @@ get_meta(Key, State) ->
 
 %% @doc Return the node that owns the given index.
 -spec index_owner(State :: chstate(),
-                  Idx :: chash:index_as_int()) -> Node :: term().
+                  Idx :: chash:index_as_int()) -> Node :: term() |
+                                                          not_exisitng.
 
 index_owner(State, Idx) ->
-    {Idx, Owner} = lists:keyfind(Idx, 1, all_owners(State)),
-    Owner.
+    case lists:keyfind(Idx, 1, all_owners(State)) of
+      {Idx, Owner} -> Owner;
+      false -> not_exisitng
+    end.
 
 %% @doc Return the node that will own this index after transtions have completed
 %%      this function will error if the ring is shrinking and Idx no longer
 %%      exists in it
 -spec future_owner(chstate(),
-                   chash:index_as_int()) -> term().
+                   chash:index_as_int()) -> term() | not_exisitng.
 
 future_owner(State, Idx) ->
     index_owner(future_ring(State), Idx).
@@ -562,6 +565,11 @@ transfer_node(Idx, Node, MyState) ->
     N = index_owner(MyState, Idx),
     case N of
       Node -> MyState;
+      not_existing ->
+          logger:warning("Transfer node attempted for non existant "
+                         "index ~p",
+                         [Idx]),
+          MyState;
       _ ->
           Me = MyState#chstate.nodename,
           VClock = vclock:increment(Me, MyState#chstate.vclock),
@@ -928,14 +936,15 @@ vnode_type(State, Idx) ->
 %% @param Idx Index of the vnode.
 %% @param Node Primary owner node to be used as a reference.
 %% @returns Type of the virtual node. If the owner of the index is the given
-%%          `Node' `primary', otherwise `future_primary' or fallback.
+%%          `Node' `primary', otherwise `future_primary' or fallback. If the index does not exist on the ring `undefined'
 -spec vnode_type(State :: chstate(), Idx :: integer(),
                  Node :: term()) -> primary | {fallback, term()} |
-                                    future_primary.
+                                    future_primary | undefined.
 
 vnode_type(State, Idx, Node) ->
     case index_owner(State, Idx) of
       Node -> primary;
+      not_existing -> undefined;
       Owner ->
           case next_owner(State, Idx) of
             {_, Node, _} -> future_primary;
