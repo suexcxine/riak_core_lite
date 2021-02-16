@@ -295,19 +295,19 @@ get_meta(Key, State) ->
 %% @doc Return the node that owns the given index.
 -spec index_owner(State :: chstate(),
                   Idx :: chash:index_as_int()) -> Node :: term() |
-                                                          not_exisitng.
+                                                          not_existing.
 
 index_owner(State, Idx) ->
     case lists:keyfind(Idx, 1, all_owners(State)) of
       {Idx, Owner} -> Owner;
-      false -> not_exisitng
+      false -> not_existing
     end.
 
 %% @doc Return the node that will own this index after transtions have completed
 %%      this function will error if the ring is shrinking and Idx no longer
 %%      exists in it
 -spec future_owner(chstate(),
-                   chash:index_as_int()) -> term() | not_exisitng.
+                   chash:index_as_int()) -> term() | not_existing.
 
 future_owner(State, Idx) ->
     index_owner(future_ring(State), Idx).
