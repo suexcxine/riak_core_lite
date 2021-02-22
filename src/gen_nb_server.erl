@@ -35,6 +35,8 @@
 
 -record(state, {cb, sock, server_state}).
 
+-type state() :: #state{}.
+
 -callback init(InitArgs :: list()) -> {ok,
                                        State :: term()} |
                                       {error, Reason :: term()}.
@@ -141,6 +143,8 @@ handle_call(Request, From,
     end.
 
 %% @hidden
+-spec handle_cast(term(), state())-> {'noreply' , _} | {'noreply' , _ , 'hibernate' |
+                 'infinity' | non_neg_integer()} | {'stop' , _ , _}.
 handle_cast(Msg,
             #state{cb = Module, server_state = ServerState} =
                 State) ->
