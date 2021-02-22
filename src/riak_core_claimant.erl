@@ -122,7 +122,7 @@
 
 -define(ROUT(S, A),
         logger:debug(S, A)).%%-define(ROUT(S,A),?debugFmt(S,A)).
-                                                                                                                                                                                                                %%-define(ROUT(S,A),io:format(S,A)).
+        %%-define(ROUT(S,A),io:format(S,A)).
 
 %%%===================================================================
 %%% API
